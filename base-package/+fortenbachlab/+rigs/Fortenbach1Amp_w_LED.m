@@ -1,4 +1,4 @@
-classdef Fortenbach1Amp w LED< symphonyui.core.descriptions.RigDescription
+classdef Fortenbach1Amp_w_LED< symphonyui.core.descriptions.RigDescription
     
     methods
         

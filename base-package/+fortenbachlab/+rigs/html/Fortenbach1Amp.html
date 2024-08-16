@@ -1,0 +1,183 @@
+
+<!DOCTYPE html
+  PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html><head>
+      <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+   <!--
+This HTML was auto-generated from MATLAB code.
+To make changes, update the MATLAB code and republish this document.
+      --><title>Fortenbach1Amp</title><meta name="generator" content="MATLAB 9.1"><link rel="schema.DC" href="http://purl.org/dc/elements/1.1/"><meta name="DC.date" content="2024-08-16"><meta name="DC.source" content="Fortenbach1Amp.m"><style type="text/css">
+html,body,div,span,applet,object,iframe,h1,h2,h3,h4,h5,h6,p,blockquote,pre,a,abbr,acronym,address,big,cite,code,del,dfn,em,font,img,ins,kbd,q,s,samp,small,strike,strong,sub,sup,tt,var,b,u,i,center,dl,dt,dd,ol,ul,li,fieldset,form,label,legend,table,caption,tbody,tfoot,thead,tr,th,td{margin:0;padding:0;border:0;outline:0;font-size:100%;vertical-align:baseline;background:transparent}body{line-height:1}ol,ul{list-style:none}blockquote,q{quotes:none}blockquote:before,blockquote:after,q:before,q:after{content:'';content:none}:focus{outine:0}ins{text-decoration:none}del{text-decoration:line-through}table{border-collapse:collapse;border-spacing:0}
+
+html { min-height:100%; margin-bottom:1px; }
+html body { height:100%; margin:0px; font-family:Arial, Helvetica, sans-serif; font-size:10px; color:#000; line-height:140%; background:#fff none; overflow-y:scroll; }
+html body td { vertical-align:top; text-align:left; }
+
+h1 { padding:0px; margin:0px 0px 25px; font-family:Arial, Helvetica, sans-serif; font-size:1.5em; color:#d55000; line-height:100%; font-weight:normal; }
+h2 { padding:0px; margin:0px 0px 8px; font-family:Arial, Helvetica, sans-serif; font-size:1.2em; color:#000; font-weight:bold; line-height:140%; border-bottom:1px solid #d6d4d4; display:block; }
+h3 { padding:0px; margin:0px 0px 5px; font-family:Arial, Helvetica, sans-serif; font-size:1.1em; color:#000; font-weight:bold; line-height:140%; }
+
+a { color:#005fce; text-decoration:none; }
+a:hover { color:#005fce; text-decoration:underline; }
+a:visited { color:#004aa0; text-decoration:none; }
+
+p { padding:0px; margin:0px 0px 20px; }
+img { padding:0px; margin:0px 0px 20px; border:none; }
+p img, pre img, tt img, li img, h1 img, h2 img { margin-bottom:0px; } 
+
+ul { padding:0px; margin:0px 0px 20px 23px; list-style:square; }
+ul li { padding:0px; margin:0px 0px 7px 0px; }
+ul li ul { padding:5px 0px 0px; margin:0px 0px 7px 23px; }
+ul li ol li { list-style:decimal; }
+ol { padding:0px; margin:0px 0px 20px 0px; list-style:decimal; }
+ol li { padding:0px; margin:0px 0px 7px 23px; list-style-type:decimal; }
+ol li ol { padding:5px 0px 0px; margin:0px 0px 7px 0px; }
+ol li ol li { list-style-type:lower-alpha; }
+ol li ul { padding-top:7px; }
+ol li ul li { list-style:square; }
+
+.content { font-size:1.2em; line-height:140%; padding: 20px; }
+
+pre, code { font-size:12px; }
+tt { font-size: 1.2em; }
+pre { margin:0px 0px 20px; }
+pre.codeinput { padding:10px; border:1px solid #d3d3d3; background:#f7f7f7; }
+pre.codeoutput { padding:10px 11px; margin:0px 0px 20px; color:#4c4c4c; }
+pre.error { color:red; }
+
+@media print { pre.codeinput, pre.codeoutput { word-wrap:break-word; width:100%; } }
+
+span.keyword { color:#0000FF }
+span.comment { color:#228B22 }
+span.string { color:#A020F0 }
+span.untermstring { color:#B20000 }
+span.syscmd { color:#B28C00 }
+
+.footer { width:auto; padding:10px 0px; margin:25px 0px 0px; border-top:1px dotted #878787; font-size:0.8em; line-height:140%; font-style:italic; color:#878787; text-align:left; float:none; }
+.footer p { margin:0px; }
+.footer a { color:#878787; }
+.footer a:hover { color:#878787; text-decoration:underline; }
+.footer a:visited { color:#878787; }
+
+table th { padding:7px 5px; text-align:left; vertical-align:middle; border: 1px solid #d6d4d4; font-weight:bold; }
+table td { padding:7px 5px; text-align:left; vertical-align:top; border:1px solid #d6d4d4; }
+
+
+
+
+
+  </style></head><body><div class="content"><pre class="codeinput"><span class="keyword">classdef</span> Fortenbach1Amp &lt; symphonyui.core.descriptions.RigDescription
+
+    <span class="keyword">methods</span>
+
+        <span class="keyword">function</span> obj = Fortenbach1Amp()
+            import <span class="string">symphonyui.builtin.daqs.*</span>;
+            import <span class="string">symphonyui.builtin.devices.*</span>;
+            import <span class="string">symphonyui.core.*</span>;
+            import <span class="string">edu.washington.*</span>;
+
+            <span class="comment">% Add the NiDAQ A/D board.</span>
+            daq = NiDaqController();
+            obj.daqController = daq;
+
+            <span class="comment">% Add the Multiclamp device (demo mode).</span>
+            amp1 = MultiClampDevice(<span class="string">'Amp1'</span>, 1).bindStream(daq.getStream(<span class="string">'ao0'</span>)).bindStream(daq.getStream(<span class="string">'ai0'</span>));
+            obj.addDevice(amp1);
+
+            <span class="comment">% Check which analog input channel the temperature controller is on!!</span>
+<span class="comment">%             temperature = UnitConvertingDevice('Temperature Controller', 'V', 'manufacturer', 'Warner Instruments').bindStream(daq.getStream('ai7'));</span>
+<span class="comment">%             obj.addDevice(temperature);</span>
+
+            <span class="comment">% Add the LEDs.</span>
+            uvRamp = importdata(riekelab.Package.getCalibrationResource(<span class="string">'rigs'</span>, <span class="string">'mea'</span>, <span class="string">'uv_led_gamma_ramp.txt'</span>));
+            uv = CalibratedDevice(<span class="string">'LED'</span>, Measurement.NORMALIZED, uvRamp(:, 1), uvRamp(:, 2)).bindStream(daq.getStream(<span class="string">'ao1'</span>));
+            uv.addConfigurationSetting(<span class="string">'ndfs'</span>, {}, <span class="keyword">...</span>
+                <span class="string">'type'</span>, PropertyType(<span class="string">'cellstr'</span>, <span class="string">'row'</span>, {<span class="string">'C1'</span>, <span class="string">'C2'</span>, <span class="string">'C3'</span>, <span class="string">'C4'</span>, <span class="string">'C5'</span>}));
+            uv.addResource(<span class="string">'ndfAttenuations'</span>, containers.Map( <span class="keyword">...</span>
+                {<span class="string">'C1'</span>, <span class="string">'C2'</span>, <span class="string">'C3'</span>, <span class="string">'C4'</span>, <span class="string">'C5'</span>}, <span class="keyword">...</span>
+                {0.2768, 0.5076, 0.9281, 2.1275, 2.5022}));
+            uv.addResource(<span class="string">'fluxFactorPaths'</span>, containers.Map( <span class="keyword">...</span>
+                {<span class="string">'none'</span>}, {riekelab.Package.getCalibrationResource(<span class="string">'rigs'</span>, <span class="string">'mea'</span>, <span class="string">'uv_led_flux_factors.txt'</span>)}));
+            uv.addConfigurationSetting(<span class="string">'lightPath'</span>, <span class="string">''</span>, <span class="keyword">...</span>
+                <span class="string">'type'</span>, PropertyType(<span class="string">'char'</span>, <span class="string">'row'</span>, {<span class="string">''</span>, <span class="string">'below'</span>, <span class="string">'above'</span>}));
+            uv.addResource(<span class="string">'spectrum'</span>, importdata(riekelab.Package.getCalibrationResource(<span class="string">'rigs'</span>, <span class="string">'mea'</span>, <span class="string">'uv_led_spectrum.txt'</span>)));
+            obj.addDevice(uv);
+
+            trigger = UnitConvertingDevice(<span class="string">'Oscilloscope Trigger'</span>, Measurement.UNITLESS).bindStream(daq.getStream(<span class="string">'doport0'</span>));
+            daq.getStream(<span class="string">'doport0'</span>).setBitPosition(trigger, 0);
+            obj.addDevice(trigger);
+
+<span class="comment">%             % Add the filter wheel.</span>
+<span class="comment">%             filterWheel = edu.washington.riekelab.devices.FilterWheelDevice('comPort', 'COM5');</span>
+<span class="comment">%</span>
+<span class="comment">%             % Binding the filter wheel to an unused stream only so its configuration settings are written to each epoch.</span>
+<span class="comment">%             filterWheel.bindStream(daq.getStream('doport1'));</span>
+<span class="comment">%             daq.getStream('doport1').setBitPosition(filterWheel, 14);</span>
+<span class="comment">%             obj.addDevice(filterWheel);</span>
+<span class="comment">%</span>
+        <span class="keyword">end</span>
+    <span class="keyword">end</span>
+<span class="keyword">end</span>
+</pre><pre class="codeoutput error">Error using symphonyui.builtin.daqs.NiDaqController (line 11)
+Unable to load National Instruments assembly. Are you sure you have the NI-DAQmx drivers installed?
+
+Error in fortenbachlab.rigs.Fortenbach1Amp (line 12)
+            daq = NiDaqController();
+</pre><p class="footer"><br><a href="http://www.mathworks.com/products/matlab/">Published with MATLAB&reg; R2016b</a><br></p></div><!--
+##### SOURCE BEGIN #####
+classdef Fortenbach1Amp < symphonyui.core.descriptions.RigDescription
+    
+    methods
+        
+        function obj = Fortenbach1Amp()
+            import symphonyui.builtin.daqs.*;
+            import symphonyui.builtin.devices.*;
+            import symphonyui.core.*;
+            import edu.washington.*;
+
+            % Add the NiDAQ A/D board.
+            daq = NiDaqController();
+            obj.daqController = daq;
+            
+            % Add the Multiclamp device (demo mode).
+            amp1 = MultiClampDevice('Amp1', 1).bindStream(daq.getStream('ao0')).bindStream(daq.getStream('ai0'));
+            obj.addDevice(amp1);
+
+            % Check which analog input channel the temperature controller is on!!
+%             temperature = UnitConvertingDevice('Temperature Controller', 'V', 'manufacturer', 'Warner Instruments').bindStream(daq.getStream('ai7'));
+%             obj.addDevice(temperature);
+            
+            % Add the LEDs.
+            uvRamp = importdata(riekelab.Package.getCalibrationResource('rigs', 'mea', 'uv_led_gamma_ramp.txt'));
+            uv = CalibratedDevice('LED', Measurement.NORMALIZED, uvRamp(:, 1), uvRamp(:, 2)).bindStream(daq.getStream('ao1'));
+            uv.addConfigurationSetting('ndfs', {}, ...
+                'type', PropertyType('cellstr', 'row', {'C1', 'C2', 'C3', 'C4', 'C5'}));
+            uv.addResource('ndfAttenuations', containers.Map( ...
+                {'C1', 'C2', 'C3', 'C4', 'C5'}, ...
+                {0.2768, 0.5076, 0.9281, 2.1275, 2.5022}));
+            uv.addResource('fluxFactorPaths', containers.Map( ...
+                {'none'}, {riekelab.Package.getCalibrationResource('rigs', 'mea', 'uv_led_flux_factors.txt')}));
+            uv.addConfigurationSetting('lightPath', '', ...
+                'type', PropertyType('char', 'row', {'', 'below', 'above'}));
+            uv.addResource('spectrum', importdata(riekelab.Package.getCalibrationResource('rigs', 'mea', 'uv_led_spectrum.txt')));          
+            obj.addDevice(uv);
+            
+            trigger = UnitConvertingDevice('Oscilloscope Trigger', Measurement.UNITLESS).bindStream(daq.getStream('doport0'));
+            daq.getStream('doport0').setBitPosition(trigger, 0);
+            obj.addDevice(trigger);
+
+%             % Add the filter wheel.
+%             filterWheel = edu.washington.riekelab.devices.FilterWheelDevice('comPort', 'COM5');
+%             
+%             % Binding the filter wheel to an unused stream only so its configuration settings are written to each epoch.
+%             filterWheel.bindStream(daq.getStream('doport1'));
+%             daq.getStream('doport1').setBitPosition(filterWheel, 14);
+%             obj.addDevice(filterWheel);
+%             
+        end
+    end
+end
+
+
+##### SOURCE END #####
+--></body></html>

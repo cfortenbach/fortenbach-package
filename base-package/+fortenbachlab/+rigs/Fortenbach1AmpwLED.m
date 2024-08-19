@@ -16,7 +16,7 @@ classdef Fortenbach1AmpwLED < symphonyui.core.descriptions.RigDescription
             amp1 = MultiClampDevice('Amp1', 1).bindStream(daq.getStream('ao0')).bindStream(daq.getStream('ai0'));
             obj.addDevice(amp1);
 
-            % Check which analog input channel the temperature controller is on!!
+%           % Check which analog input channel the temperature controller is on!!
 %             temperature = UnitConvertingDevice('Temperature Controller', 'V', 'manufacturer', 'Warner Instruments').bindStream(daq.getStream('ai7'));
 %             obj.addDevice(temperature);
             
@@ -25,14 +25,14 @@ classdef Fortenbach1AmpwLED < symphonyui.core.descriptions.RigDescription
             obj.addDevice(LED1);
             
 
-%             % Add the filter wheel.
-%             filterWheel = edu.washington.riekelab.devices.FilterWheelDevice('comPort', 'COM5');
-%             
-%             % Binding the filter wheel to an unused stream only so its configuration settings are written to each epoch.
-%             filterWheel.bindStream(daq.getStream('doport1'));
-%             daq.getStream('doport1').setBitPosition(filterWheel, 14);
-%             obj.addDevice(filterWheel);
-%             
+            % Add the filter wheel.
+            filterWheel = devices.FilterWheelDevice('comPort', 'COM10');
+             
+            % Binding the filter wheel to an unused stream only so its configuration settings are written to each epoch.
+            filterWheel.bindStream(daq.getStream('doport1'));
+            daq.getStream('doport1').setBitPosition(filterWheel, 14);
+            obj.addDevice(filterWheel);
+             
         end
     end
 end

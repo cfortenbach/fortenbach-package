@@ -16,7 +16,7 @@ classdef FilterWheelDevice < symphonyui.core.Device
         function obj = FilterWheelDevice(varargin)
             
             ip = inputParser();
-            ip.addParameter('comPort', 'COM13', @ischar);
+            ip.addParameter('comPort', 'COM10', @ischar);
             ip.addParameter('NDF', 4.0, @isnumeric);
             ip.parse(varargin{:});
             

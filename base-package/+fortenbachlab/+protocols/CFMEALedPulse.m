@@ -28,10 +28,10 @@ classdef CFMEALedPulse < fortenbachlab.protocols.FortenbachLabProtocol
     
     methods
         
-% When delivering voltage steps, 50 mV command results in 1 mV voltage step and max input voltage of MEA is 4 volts and 
-    function pulseAmplitudeCut = get.pulseAmplitude(obj)
-        pulseAmplitudeCut = obj.lightAmplitude * 1000 * 0.4 / 50; 
-    end
+        % When delivering voltage steps, 50 mV command results in 1 mV voltage step and max input voltage of MEA is 4 volts and 
+        function pulseAmplitudeCut = get.pulseAmplitude(obj)
+            pulseAmplitudeCut = obj.lightAmplitude * 1000 * 0.4 / 50; 
+        end
         
         function didSetRig(obj)
             didSetRig@fortenbachlab.protocols.FortenbachLabProtocol(obj);

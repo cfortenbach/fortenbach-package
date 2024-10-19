@@ -11,8 +11,8 @@ classdef CFMEALedPulseFamily < fortenbachlab.protocols.FortenbachLabProtocol
         led                             % Output LED
         amp                             % Output amplifier
         preTime = 10                    % Pulse leading duration (ms)
-        stimTime = 100                  % Pulse duration (ms)
-        tailTime = 400                  % Pulse trailing duration (ms)
+        stimTime = 5000                  % Pulse duration (ms)
+        tailTime = 5000                  % Pulse trailing duration (ms)
         firstLightAmplitude = 1         % First pulse amplitude (V [0-10])
         pulsesInFamily = uint16(3)      % Number of pulses in family
         firstPulseAmplitude = 1         % Voltage Output (Auto-calculated DO NOT ADJUST to avoid MEA overload)

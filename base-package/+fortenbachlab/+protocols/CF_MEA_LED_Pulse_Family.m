@@ -1,4 +1,4 @@
-classdef CFMEALedPulseFamily < fortenbachlab.protocols.FortenbachLabProtocol
+classdef CF_MEA_LED_Pulse_Family < fortenbachlab.protocols.FortenbachLabProtocol
     % Presents families of rectangular pulse stimuli to a specified LED and records responses from a specified 
     % amplifier. Each family consists of a set of pulse stimuli with amplitude starting at firstLightAmplitude. With
     % each subsequent pulse in the family, the amplitude is doubled. The family is complete when this sequence has been

@@ -1,12 +1,14 @@
-classdef CFPulse < fortenbachlab.protocols.FortenbachLabProtocol
-    % Presents a set of rectangular pulse stimuli to a specified amplifier and records from the same amplifier.
+classdef CF_Led_Pulse < fortenbachlab.protocols.FortenbachLabProtocol
+    % Presents a set of rectangular pulse stimuli to a specified LED and records from a specified amplifier.
     
     properties
-        amp                             % Output amplifier
-        preTime = 50                    % Pulse leading duration (ms)
-        stimTime = 500                  % Pulse duration (ms)
-        tailTime = 50                   % Pulse trailing duration (ms)
-        pulseAmplitude = 100            % Pulse amplitude (mV or pA depending on amp mode)
+        led                             % Output LED
+        preTime = 10                    % Pulse leading duration (ms)
+        stimTime = 5000                  % Pulse duration (ms)
+        tailTime = 5000                  % Pulse trailing duration (ms)
+        lightAmplitude = 0.1            % Pulse amplitude (V or norm. [0-1] depending on LED units)
+        lightMean = 0                   % Pulse and LED background mean (V or norm. [0-1] depending on LED units)
+        amp                             % Input amplifier
     end
     
     properties (Dependent, SetAccess = private)
@@ -14,12 +16,12 @@ classdef CFPulse < fortenbachlab.protocols.FortenbachLabProtocol
     end
     
     properties
-        amp2PulseAmplitude = 0          % Pulse amplitude for secondary amp (mV or pA depending on amp2 mode)
         numberOfAverages = uint16(5)    % Number of epochs
         interpulseInterval = 0          % Duration between pulses (s)
     end
     
     properties (Hidden)
+        ledType
         ampType
     end
     
@@ -28,6 +30,7 @@ classdef CFPulse < fortenbachlab.protocols.FortenbachLabProtocol
         function didSetRig(obj)
             didSetRig@fortenbachlab.protocols.FortenbachLabProtocol(obj);
             
+            [obj.led, obj.ledType] = obj.createDeviceNamesProperty('LED');
             [obj.amp, obj.ampType] = obj.createDeviceNamesProperty('Amp');
         end
         
@@ -40,7 +43,7 @@ classdef CFPulse < fortenbachlab.protocols.FortenbachLabProtocol
         end
         
         function p = getPreview(obj, panel)
-            p = symphonyui.builtin.previews.StimuliPreview(panel, @()obj.createAmpStimulus());
+            p = symphonyui.builtin.previews.StimuliPreview(panel, @()obj.createLedStimulus());
         end
         
         function prepareRun(obj)
@@ -61,32 +64,21 @@ classdef CFPulse < fortenbachlab.protocols.FortenbachLabProtocol
                     'baselineRegion2', [0 obj.preTime], ...
                     'measurementRegion2', [obj.preTime obj.preTime+obj.stimTime]);
             end
+            
+            device = obj.rig.getDevice(obj.led);
+            device.background = symphonyui.core.Measurement(obj.lightMean, device.background.displayUnits);
         end
         
-        function stim = createAmpStimulus(obj)
+        function stim = createLedStimulus(obj)
             gen = symphonyui.builtin.stimuli.PulseGenerator();
             
             gen.preTime = obj.preTime;
             gen.stimTime = obj.stimTime;
             gen.tailTime = obj.tailTime;
-            gen.amplitude = obj.pulseAmplitude;
-            gen.mean = obj.rig.getDevice(obj.amp).background.quantity;
+            gen.amplitude = obj.lightAmplitude;
+            gen.mean = obj.lightMean;
             gen.sampleRate = obj.sampleRate;
-            gen.units = obj.rig.getDevice(obj.amp).background.displayUnits;
-            
-            stim = gen.generate();
-        end
-        
-        function stim = createAmp2Stimulus(obj)
-            gen = symphonyui.builtin.stimuli.PulseGenerator();
-            
-            gen.preTime = obj.preTime;
-            gen.stimTime = obj.stimTime;
-            gen.tailTime = obj.tailTime;
-            gen.amplitude = obj.amp2PulseAmplitude;
-            gen.mean = obj.rig.getDevice(obj.amp2).background.quantity;
-            gen.sampleRate = obj.sampleRate;
-            gen.units = obj.rig.getDevice(obj.amp2).background.displayUnits;
+            gen.units = obj.rig.getDevice(obj.led).background.displayUnits;
             
             stim = gen.generate();
         end
@@ -94,11 +86,10 @@ classdef CFPulse < fortenbachlab.protocols.FortenbachLabProtocol
         function prepareEpoch(obj, epoch)
             prepareEpoch@fortenbachlab.protocols.FortenbachLabProtocol(obj, epoch);
             
-            epoch.addStimulus(obj.rig.getDevice(obj.amp), obj.createAmpStimulus());
+            epoch.addStimulus(obj.rig.getDevice(obj.led), obj.createLedStimulus());
             epoch.addResponse(obj.rig.getDevice(obj.amp));
             
             if numel(obj.rig.getDeviceNames('Amp')) >= 2
-                epoch.addStimulus(obj.rig.getDevice(obj.amp2), obj.createAmp2Stimulus());
                 epoch.addResponse(obj.rig.getDevice(obj.amp2));
             end
         end
@@ -106,7 +97,7 @@ classdef CFPulse < fortenbachlab.protocols.FortenbachLabProtocol
         function prepareInterval(obj, interval)
             prepareInterval@fortenbachlab.protocols.FortenbachLabProtocol(obj, interval);
             
-            device = obj.rig.getDevice(obj.amp);
+            device = obj.rig.getDevice(obj.led);
             interval.addDirectCurrentStimulus(device, device.background, obj.interpulseInterval, obj.sampleRate);
         end
         
@@ -131,4 +122,3 @@ classdef CFPulse < fortenbachlab.protocols.FortenbachLabProtocol
     end
     
 end
-

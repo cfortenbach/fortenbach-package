@@ -1,4 +1,4 @@
-classdef CF_MEA_Led_Pulse < fortenbachlab.protocols.FortenbachLabProtocol
+classdef CFMEALedPulse < fortenbachlab.protocols.FortenbachLabProtocol
     % Presents a set of rectangular pulse stimuli to a specified LED and records from a specified amplifier.
     
     properties

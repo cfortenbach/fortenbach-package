@@ -1,4 +1,4 @@
-classdef CF_Pulse+Family < fortenbachlab.protocols.FortenbachLabProtocol
+classdef CF_Pulse_Family < fortenbachlab.protocols.FortenbachLabProtocol
     % Presents families of rectangular pulse stimuli to a specified amplifier and records responses from the same
     % amplifier. Each family consists of a set of pulse stimuli with signal value starting at firstPulseSignal. With
     % each subsequent pulse in the family, the signal value is incremented by incrementPerPulse. The family is complete

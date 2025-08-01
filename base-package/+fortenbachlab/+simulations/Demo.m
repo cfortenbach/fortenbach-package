@@ -10,11 +10,11 @@ classdef Demo < symphonyui.core.Simulation
                 inStream = inputStreams{i};
 
                 if ~inStream.active
-                    % We don't care to process inactive input streams (i.e. channels without devices).
+                    % We dont care to process inactive input streams (i.e. channels without devices).
                     continue;
                 end
 
-                % Simulate input data.
+                %Simulate input data.
                 rate = inStream.sampleRate;
                 nsamples = seconds(timeStep) * rate.quantityInBaseUnits;
                 if strcmp(inStream.name, 'ai0')

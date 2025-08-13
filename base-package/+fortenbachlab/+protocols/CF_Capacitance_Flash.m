@@ -1,12 +1,12 @@
-classdef CF_LED_Pulse < fortenbachlab.protocols.FortenbachLabProtocol
+classdef CF_Capacitance_Flash < fortenbachlab.protocols.FortenbachLabProtocol
     % Presents a set of rectangular pulse stimuli to a specified LED and records from a specified amplifier.
     
     properties
         led                             % Output LED
         preTime = 10                    % Pulse leading duration (ms)
-        stimTime = 5000                  % Pulse duration (ms)
-        tailTime = 5000                  % Pulse trailing duration (ms)
-        lightAmplitude = 0.1            % Pulse amplitude (V or norm. [0-1] depending on LED units)
+        stimTime = 10                  % Pulse duration (ms)
+        tailTime = 100                  % Pulse trailing duration (ms)
+        lightAmplitude = 5            % Pulse amplitude (V or norm. [0-1] depending on LED units)
         lightMean = 0                   % Pulse and LED background mean (V or norm. [0-1] depending on LED units)
         amp                             % Input amplifier
     end

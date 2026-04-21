@@ -1,14 +1,12 @@
-classdef CF_Capacitance_Flash < fortenbachlab.protocols.FortenbachLabProtocol
-    % Presents a set of rectangular pulse stimuli to a specified LED and records from a specified amplifier.
+classdef CfPatchStep < fortenbachlab.protocols.FortenbachLabProtocol
+    % Presents a set of rectangular pulse stimuli to a specified amplifier and records from the same amplifier.
     
     properties
-        led                             % Output LED
-        preTime = 10                    % Pulse leading duration (ms)
-        stimTime = 10                  % Pulse duration (ms)
-        tailTime = 100                  % Pulse trailing duration (ms)
-        lightAmplitude = 5            % Pulse amplitude (V or norm. [0-1] depending on LED units)
-        lightMean = 0                   % Pulse and LED background mean (V or norm. [0-1] depending on LED units)
-        amp                             % Input amplifier
+        amp                             % Output amplifier
+        preTime = 50                     % Pulse leading duration (ms)
+        stimTime = 500                  % Pulse duration (ms)
+        tailTime = 50                   % Pulse trailing duration (ms)
+        pulseAmplitude = 100            % Pulse amplitude (mV or pA depending on amp mode)
     end
     
     properties (Dependent, SetAccess = private)
@@ -16,12 +14,12 @@ classdef CF_Capacitance_Flash < fortenbachlab.protocols.FortenbachLabProtocol
     end
     
     properties
+        amp2PulseAmplitude = 0          % Pulse amplitude for secondary amp (mV or pA depending on amp2 mode)
         numberOfAverages = uint16(5)    % Number of epochs
         interpulseInterval = 0          % Duration between pulses (s)
     end
     
     properties (Hidden)
-        ledType
         ampType
     end
     
@@ -30,7 +28,6 @@ classdef CF_Capacitance_Flash < fortenbachlab.protocols.FortenbachLabProtocol
         function didSetRig(obj)
             didSetRig@fortenbachlab.protocols.FortenbachLabProtocol(obj);
             
-            [obj.led, obj.ledType] = obj.createDeviceNamesProperty('LED');
             [obj.amp, obj.ampType] = obj.createDeviceNamesProperty('Amp');
         end
         
@@ -43,7 +40,7 @@ classdef CF_Capacitance_Flash < fortenbachlab.protocols.FortenbachLabProtocol
         end
         
         function p = getPreview(obj, panel)
-            p = symphonyui.builtin.previews.StimuliPreview(panel, @()obj.createLedStimulus());
+            p = symphonyui.builtin.previews.StimuliPreview(panel, @()obj.createAmpStimulus());
         end
         
         function prepareRun(obj)
@@ -64,21 +61,45 @@ classdef CF_Capacitance_Flash < fortenbachlab.protocols.FortenbachLabProtocol
                     'baselineRegion2', [0 obj.preTime], ...
                     'measurementRegion2', [obj.preTime obj.preTime+obj.stimTime]);
             end
-            
-            device = obj.rig.getDevice(obj.led);
-            device.background = symphonyui.core.Measurement(obj.lightMean, device.background.displayUnits);
+
+            if obj.cellHealthEnabled()
+                obj.showFigure('fortenbachlab.figures.CellHealthFigure', obj.rig.getDevice(obj.amp));
+            else
+                obj.warnCellHealthDisabled();
+            end
+        end
+
+        function stim = createAmpStimulus(obj)
+            device = obj.rig.getDevice(obj.amp);
+            bg = device.background.quantity;
+            units = device.background.displayUnits;
+
+            timeToPts = @(t)(round(t / 1e3 * obj.sampleRate));
+            prePts  = timeToPts(obj.preTime);
+            stimPts = timeToPts(obj.stimTime);
+            tailPts = timeToPts(obj.tailTime);
+
+            data = ones(1, prePts + stimPts + tailPts) * bg;
+            data(prePts+1 : prePts+stimPts) = bg + obj.pulseAmplitude;
+
+            % Embed cell-health test pulse in pre-time (if enabled).
+            if obj.cellHealthEnabled()
+                data = obj.embedTestPulse(data, obj.amp);
+            end
+
+            stim = obj.createStimulusFromArray(data, units);
         end
         
-        function stim = createLedStimulus(obj)
+        function stim = createAmp2Stimulus(obj)
             gen = symphonyui.builtin.stimuli.PulseGenerator();
             
             gen.preTime = obj.preTime;
             gen.stimTime = obj.stimTime;
             gen.tailTime = obj.tailTime;
-            gen.amplitude = obj.lightAmplitude;
-            gen.mean = obj.lightMean;
+            gen.amplitude = obj.amp2PulseAmplitude;
+            gen.mean = obj.rig.getDevice(obj.amp2).background.quantity;
             gen.sampleRate = obj.sampleRate;
-            gen.units = obj.rig.getDevice(obj.led).background.displayUnits;
+            gen.units = obj.rig.getDevice(obj.amp2).background.displayUnits;
             
             stim = gen.generate();
         end
@@ -86,18 +107,32 @@ classdef CF_Capacitance_Flash < fortenbachlab.protocols.FortenbachLabProtocol
         function prepareEpoch(obj, epoch)
             prepareEpoch@fortenbachlab.protocols.FortenbachLabProtocol(obj, epoch);
             
-            epoch.addStimulus(obj.rig.getDevice(obj.led), obj.createLedStimulus());
+            epoch.addStimulus(obj.rig.getDevice(obj.amp), obj.createAmpStimulus());
             epoch.addResponse(obj.rig.getDevice(obj.amp));
             
             if numel(obj.rig.getDeviceNames('Amp')) >= 2
+                epoch.addStimulus(obj.rig.getDevice(obj.amp2), obj.createAmp2Stimulus());
                 epoch.addResponse(obj.rig.getDevice(obj.amp2));
             end
         end
         
+        function completeEpoch(obj, epoch)
+            completeEpoch@fortenbachlab.protocols.FortenbachLabProtocol(obj, epoch);
+
+            if obj.cellHealthEnabled()
+                try
+                    testAmp = obj.testPulseAmplitude(obj.amp);
+                    metrics = obj.computeCellHealthMetrics(epoch, obj.amp, testAmp, 5, 20);
+                    obj.saveCellHealthMetrics(epoch, metrics);
+                catch
+                end
+            end
+        end
+
         function prepareInterval(obj, interval)
             prepareInterval@fortenbachlab.protocols.FortenbachLabProtocol(obj, interval);
             
-            device = obj.rig.getDevice(obj.led);
+            device = obj.rig.getDevice(obj.amp);
             interval.addDirectCurrentStimulus(device, device.background, obj.interpulseInterval, obj.sampleRate);
         end
         
@@ -122,3 +157,4 @@ classdef CF_Capacitance_Flash < fortenbachlab.protocols.FortenbachLabProtocol
     end
     
 end
+

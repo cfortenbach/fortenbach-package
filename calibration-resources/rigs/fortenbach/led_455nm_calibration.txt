@@ -1,0 +1,20 @@
+% LED calibration: 455 nm LED through 4x objective with parfocal collar
+% Spot diameter: 5.5 mm
+% LED driver: 100 mA/V (i.e., 10V = 1000 mA)
+% Calibration measured at NDF 0 (no filter)
+%
+% Column 1: Voltage (V) - DAQ analog output to LED driver
+% Column 2: Photons/cm2/s at NDF 0
+%
+% To compute photon flux at other NDF values:
+%   photons_cm2_s = interp1(voltage, flux_ndf0, V) / 10^(NDF)
+%
+% voltage	photons_cm2_s
+0.0	0.0
+0.1	9.05e+14
+0.5	4.68e+15
+1.0	9.18e+15
+3.0	2.55e+16
+5.0	4.01e+16
+8.0	5.99e+16
+10.0	7.23e+16

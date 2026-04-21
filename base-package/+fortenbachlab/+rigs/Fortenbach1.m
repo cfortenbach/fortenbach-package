@@ -24,17 +24,12 @@ classdef Fortenbach1 < symphonyui.core.descriptions.RigDescription
             LED1 = UnitConvertingDevice('LED AO1', 'V').bindStream(daq.getStream('ao1'));
             obj.addDevice(LED1);
             
-            % Add the filter wheel.
-            filterWheel = edu.washington.riekelab.devices.FilterWheelDevice('comPort', 'COM10');
-             
-            % Binding the filter wheel to an unused stream only so its configuration settings are written to each epoch.
-            % filterWheel.bindStream(daq.getStream('doport1'));
-            % daq.getStream('doport1').setBitPosition(filterWheel, 14);
-            % obj.addDevice(filterWheel);
+            % Add the filter wheel (Thorlabs FW102C on COM10).
+            % NDF values: [0, 0.5, 1.0, 2.0, 3.0, 4.0] in positions 1-6.
+            filterWheel = edu.washington.riekelab.devices.FilterWheelDevice('comPort', 'COM10', 'NDF', 0.0);
 
-            % trigger = UnitConvertingDevice('Oscilloscope Trigger', Measurement.UNITLESS).bindStream(daq.getStream('doport1'));
-            % daq.getStream('doport1').setBitPosition(trigger, 0);
-            % obj.addDevice(trigger);
+            % Filter wheel is controlled via serial COM port, not DAQ digital I/O.
+            obj.addDevice(filterWheel);
              
         end
     end

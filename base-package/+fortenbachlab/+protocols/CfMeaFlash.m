@@ -108,7 +108,10 @@ classdef CfMeaFlash < fortenbachlab.protocols.FortenbachLabProtocol
                     'Failed to set filter wheel to NDF %g: %s', obj.ndf, e.message);
             end
 
-            obj.showFigure('fortenbachlab.figures.ProgressFigure', obj.numberOfAverages);
+            obj.showFigure('fortenbachlab.figures.ProgressFigure', obj.numberOfAverages, ...
+                'flashVoltages', obj.lightAmplitude, ...
+                'flashNdfs', obj.ndf, ...
+                'flashFluxes', obj.getPhotonFlux(obj.lightMean + obj.lightAmplitude, obj.ndf));
         end
         
         function LEDstim = createLedStimulus(obj)

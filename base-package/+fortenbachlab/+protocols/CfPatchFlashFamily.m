@@ -1,52 +1,67 @@
-classdef CfMeaFlashFamily < fortenbachlab.protocols.FortenbachLabProtocol
-    % Presents families of rectangular pulse stimuli to a specified LED and records responses from a specified
-    % amplifier. Each family consists of a set of pulse stimuli with amplitude starting at firstLightAmplitude. With
-    % each subsequent pulse in the family, the amplitude is doubled. The family is complete when this sequence has been
-    % executed pulsesInFamily times.
+classdef CfPatchFlashFamily < fortenbachlab.protocols.FortenbachLabProtocol
+    % Presents families of escalating-intensity flash stimuli to an LED and
+    % records from an amplifier in voltage-clamp or current-clamp mode.
     %
-    % When autoNDF is enabled, the protocol works in photon-flux space.
-    % Intensity doubles each step; when the voltage required to deliver
-    % the target flux exceeds 10 V at the current NDF, the filter wheel
-    % automatically advances to the next lower NDF (more light) and the
-    % voltage is recomputed via the calibration curve.
+    % Each family consists of pulsesInFamily flashes. The LED voltage doubles
+    % with each successive pulse. When autoNDF is enabled, the filter wheel
+    % automatically advances to the next lower NDF (more light) when the
+    % voltage would exceed 10 V, and the voltage is recomputed via the
+    % calibration curve to deliver 2x the flux of the previous pulse.
     %
-    % Example (autoNDF on, startingNDF = 4.0, firstLightAmplitude = 1 V):
-    %   Pulse 1: 1 V   @ NDF 4.0  ->  flux_1
-    %   Pulse 2: 2 V   @ NDF 4.0  ->  flux_2  = 2 * flux_1
-    %   ...until voltage would exceed 10 V, then NDF steps down.
+    % The amplifier AO delivers a flat holding potential (at the amp
+    % background) with an optional cell health test pulse embedded in
+    % pre-time — it does NOT send an MCS-encoded stimulus.
+    %
+    % Workflow:
+    %   1. Go whole-cell in voltage clamp.
+    %   2. Set holding potential in MultiClamp Commander.
+    %   3. Run this protocol — it delivers escalating flashes with
+    %      automatic NDF switching and monitors cell health.
+    %
+    % Features:
+    %   - Voltage-doubling flash family with automatic NDF switching
+    %   - Cell health monitoring (Rinput, Ihold) via test pulse in pre-time
+    %   - Flash onset figure (zoomed view around flash onset)
+    %   - Photon flux display and entry in scientific notation
+    %   - Hardware-timed filter wheel settle delay (2 s via prepareInterval)
+    %   - Dual amplifier support
 
     properties
         led                             % Output LED
-        amp                             % Output amplifier
         preTime = 50                    % Pulse leading duration (ms)
-        stimTime = 5000                 % Pulse duration (ms)
-        tailTime = 5000                 % Pulse trailing duration (ms)
+        stimTime = 10                   % Pulse duration (ms)
+        tailTime = 3000                 % Pulse trailing duration (ms)
         firstLightAmplitude = 1         % First pulse amplitude (V [0-10])
         pulsesInFamily = uint16(3)      % Number of pulses in family
-        lightMean = 0                   % Pulse and LED background mean (V or norm. [0-1] depending on LED units)
+        lightMean = 0                   % Pulse and LED background mean (V)
+        ndf = 0.0                       % ND filter setting (when autoNDF is off)
         autoNDF = false                 % Automatically switch NDF when voltage exceeds 10 V
         startingNDF = 4.0               % Starting NDF value (used when autoNDF is true)
+        numberOfAverages = uint16(5)    % Number of family repeats
+        interpulseInterval = 0          % Duration between pulses (s)
+        amp                             % Input amplifier
     end
 
     properties (Dependent, SetAccess = private)
         amp2                            % Secondary amplifier
-        firstPulseAmplitude             % Scaled voltage output to MCS (auto-calculated)
-        photonFluxPeakMax               % Photon flux at last (brightest) pulse (photons/cm2/s)
-        photonFluxBackground            % Estimated photon flux at lightMean (photons/cm2/s)
+        photonFluxPeakMax               % Photon flux at last (brightest) pulse
+        photonFluxBackground            % Estimated photon flux at lightMean
     end
 
     properties (Dependent)
-        photonFluxPeakMin               % Photon flux at first (dimmest) pulse. Accepts scientific notation, e.g. '1.5e15'.
+        photonFluxPeakMin               % Photon flux at first (dimmest) pulse. Accepts scientific notation.
     end
 
     properties
-        numberOfAverages = uint16(5)    % Number of epochs
-        interpulseInterval = 0          % Duration between pulses (s)
+        showOnsetFigure = true          % Show zoomed flash onset figure
+        onsetPrePad = 5                 % Flash onset window: ms before onset
+        onsetPostPad = 100              % Flash onset window: ms after onset
     end
 
     properties (Hidden)
         ledType
         ampType
+        ndfType = symphonyui.core.PropertyType('denserealdouble', 'scalar', {0, 0.5, 1.0, 2.0, 3.0, 4.0})
         startingNDFType = symphonyui.core.PropertyType('denserealdouble', 'scalar', {0, 0.5, 1.0, 2.0, 3.0, 4.0})
         lastNdf = NaN           % Tracks the NDF used by the previous epoch
         intervalCount = 0       % Number of inter-epoch intervals completed
@@ -57,11 +72,6 @@ classdef CfMeaFlashFamily < fortenbachlab.protocols.FortenbachLabProtocol
     end
 
     methods
-
-    % When delivering voltage steps, 50 mV command results in 1 mV voltage step and max input voltage of MEA is 4 volts.
-    function pulseAmplitudeCut = get.firstPulseAmplitude(obj)
-        pulseAmplitudeCut = obj.firstLightAmplitude * 1000 * 0.4 / 50;
-    end
 
         function didSetRig(obj)
             didSetRig@fortenbachlab.protocols.FortenbachLabProtocol(obj);
@@ -77,12 +87,21 @@ classdef CfMeaFlashFamily < fortenbachlab.protocols.FortenbachLabProtocol
                 d.isHidden = true;
             end
 
-            % Hide startingNDF when autoNDF is off.
+            % Hide startingNDF when autoNDF is off; hide ndf when autoNDF is on.
             if strcmp(name, 'startingNDF') && ~obj.autoNDF
                 d.isHidden = true;
             end
+            if strcmp(name, 'ndf') && obj.autoNDF
+                d.isHidden = true;
+            end
 
-            % Treat photonFluxPeakMin as an editable string so scientific
+            % Constrain NDF to valid filter wheel values.
+            if strcmp(name, 'ndf')
+                d.type = symphonyui.core.PropertyType('denserealdouble', 'scalar', ...
+                    {0, 0.5, 1.0, 2.0, 3.0, 4.0});
+            end
+
+            % Treat photon flux fields as editable strings so scientific
             % notation input (e.g. "1.5e15") is accepted and displayed.
             if strcmp(name, 'photonFluxPeakMin')
                 d.type = symphonyui.core.PropertyType('char', 'row');
@@ -94,7 +113,7 @@ classdef CfMeaFlashFamily < fortenbachlab.protocols.FortenbachLabProtocol
             function s = createPreviewStimuli(obj)
                 s = cell(1, obj.pulsesInFamily);
                 for i = 1:numel(s)
-                    [s{i}, ~] = obj.createLedStimulus(i);
+                    s{i} = obj.createLedStimulus(i);
                 end
             end
         end
@@ -105,9 +124,11 @@ classdef CfMeaFlashFamily < fortenbachlab.protocols.FortenbachLabProtocol
             obj.intervalCount = 0;
 
             if numel(obj.rig.getDeviceNames('Amp')) < 2
-                obj.showFigure('symphonyui.builtin.figures.ResponseFigure', obj.rig.getDevice(obj.amp));
-                obj.showFigure('symphonyui.builtin.figures.MeanResponseFigure', obj.rig.getDevice(obj.amp), ...
-                    'groupBy', {'lightAmplitude'});
+                obj.showFigure('fortenbachlab.figures.ResponseStimulusFigure', ...
+                    obj.rig.getDevice(obj.amp), obj.rig.getDevice(obj.led));
+                obj.showFigure('fortenbachlab.figures.MeanResponseFigure', obj.rig.getDevice(obj.amp), ...
+                    'groupBy', {'lightAmplitude'}, ...
+                    'ledDevice', obj.rig.getDevice(obj.led));
                 obj.showFigure('symphonyui.builtin.figures.ResponseStatisticsFigure', obj.rig.getDevice(obj.amp), {@mean, @var}, ...
                     'baselineRegion', [0 obj.preTime], ...
                     'measurementRegion', [obj.preTime obj.preTime+obj.stimTime]);
@@ -123,8 +144,7 @@ classdef CfMeaFlashFamily < fortenbachlab.protocols.FortenbachLabProtocol
                     'measurementRegion2', [obj.preTime obj.preTime+obj.stimTime]);
             end
 
-            % If autoNDF, set the filter wheel to the starting NDF before
-            % the first epoch and set background at that NDF.
+            % Set filter wheel to starting NDF.
             if obj.autoNDF
                 try
                     fws = obj.rig.getDevices('FilterWheel');
@@ -141,10 +161,43 @@ classdef CfMeaFlashFamily < fortenbachlab.protocols.FortenbachLabProtocol
                 end
                 obj.lastNdf = obj.startingNDF;
             else
+                % Set filter wheel to selected NDF with settle time.
+                try
+                    fws = obj.rig.getDevices('FilterWheel');
+                    if ~isempty(fws)
+                        currentNDF = fws{1}.getConfigurationSetting('NDF');
+                        fws{1}.setNDF(obj.ndf);
+                        if ~isequal(currentNDF, obj.ndf)
+                            pause(4);
+                        end
+                    end
+                catch e
+                    warning('CfPatchFlashFamily:setNDFFailed', ...
+                        'Failed to set filter wheel to NDF %g: %s', obj.ndf, e.message);
+                end
                 obj.lastNdf = obj.getCurrentNDF();
             end
 
             obj.setLedBackground(obj.led, obj.lightMean);
+
+            if obj.cellHealthEnabled()
+                obj.showFigure('fortenbachlab.figures.CellHealthFigure', obj.rig.getDevice(obj.amp));
+            else
+                obj.warnCellHealthDisabled();
+            end
+
+            if obj.showOnsetFigure
+                obj.showFigure('fortenbachlab.figures.FlashOnsetFigure', obj.rig.getDevice(obj.amp), ...
+                    'preTime', obj.preTime, ...
+                    'prePad', obj.onsetPrePad, ...
+                    'postPad', obj.onsetPostPad, ...
+                    'ledDevice', obj.rig.getDevice(obj.led), ...
+                    'groupBy', 'lightAmplitude');
+            end
+
+            obj.showFigure('fortenbachlab.figures.IntensityResponseFigure', obj.rig.getDevice(obj.amp), ...
+                'preTime', obj.preTime, ...
+                'stimTime', obj.stimTime);
 
             [pfVoltages, pfNdfs, pfFluxes] = obj.computePulseTable();
             obj.showFigure('fortenbachlab.figures.ProgressFigure', obj.numberOfAverages * obj.pulsesInFamily, ...
@@ -162,10 +215,8 @@ classdef CfMeaFlashFamily < fortenbachlab.protocols.FortenbachLabProtocol
             % COMPUTEPULSETABLE  Pre-compute voltage, NDF, and photon flux
             % for every pulse in the family.
             %
-            %   [voltages, ndfs, fluxes] = computePulseTable(obj)
-            %
-            % When autoNDF is false the behaviour is the same as before:
-            % voltage doubles each step at whatever NDF the wheel is set to.
+            % When autoNDF is false: voltage doubles each step at the
+            % current NDF setting.
             %
             % When autoNDF is true:
             %   1. The first pulse is firstLightAmplitude at startingNDF.
@@ -185,7 +236,11 @@ classdef CfMeaFlashFamily < fortenbachlab.protocols.FortenbachLabProtocol
 
             if ~obj.autoNDF || isempty(obj.ledCalibration)
                 % --- Legacy behaviour: simple voltage doubling --------
-                ndf = obj.getCurrentNDF();
+                if obj.autoNDF
+                    ndf = obj.startingNDF;
+                else
+                    ndf = obj.ndf;
+                end
                 for i = 1:n
                     v = obj.firstLightAmplitude * 2^(i - 1);
                     voltages(i) = v;
@@ -216,7 +271,7 @@ classdef CfMeaFlashFamily < fortenbachlab.protocols.FortenbachLabProtocol
                     fluxes(i)   = cal.voltageToFlux(obj.lightMean + nextAmplitude, currentNdf);
                 else
                     % Doubled voltage exceeds 10 V — switch NDF.
-                    % Target: 2× the flux of the previous pulse.
+                    % Target: 2x the flux of the previous pulse.
                     prevFlux = fluxes(i - 1);
                     targetFlux = 2 * prevFlux;
 
@@ -235,11 +290,11 @@ classdef CfMeaFlashFamily < fortenbachlab.protocols.FortenbachLabProtocol
                     end
 
                     if ~stepped
-                        % Even NDF 0 can't deliver 2× flux. Clip.
+                        % Even NDF 0 can't deliver 2x flux. Clip.
                         currentNdf = 0;
                         vTotal = 10.239;
                         warning(warnState);
-                        warning('CfMeaFlashFamily:fluxClipped', ...
+                        warning('CfPatchFlashFamily:fluxClipped', ...
                             'Pulse %d: target flux %.2e exceeds maximum at all NDFs. Clipping.', ...
                             i, targetFlux);
                     else
@@ -258,12 +313,12 @@ classdef CfMeaFlashFamily < fortenbachlab.protocols.FortenbachLabProtocol
         %  Stimulus creation
         % ------------------------------------------------------------------
 
-        function [LEDstim, lightAmplitude] = createLedStimulus(obj, pulseNum)
+        function stim = createLedStimulus(obj, pulseNum)
             if obj.autoNDF && ~isempty(obj.ledCalibration)
                 [voltages, ~, ~] = obj.computePulseTable();
                 lightAmplitude = voltages(pulseNum);
             else
-                lightAmplitude = obj.LEDamplitudeForPulseNum(pulseNum);
+                lightAmplitude = obj.firstLightAmplitude * 2^(double(pulseNum) - 1);
             end
 
             gen = symphonyui.builtin.stimuli.PulseGenerator();
@@ -276,64 +331,21 @@ classdef CfMeaFlashFamily < fortenbachlab.protocols.FortenbachLabProtocol
             gen.sampleRate = obj.sampleRate;
             gen.units = obj.rig.getDevice(obj.led).background.displayUnits;
 
-            LEDstim = gen.generate();
+            stim = gen.generate();
         end
 
-        function [Ampstim, ampAmplitude] = createAmpStimulus(obj, pulseNum, ndf)
-            % Build the amp stimulus waveform for the MCS.
-            %
-            % The waveform has two components:
-            %   1. A voltage pulse during stimTime whose amplitude is the
-            %      LED amplitude × meaScale (so MCS records the LED voltage).
-            %   2. Three short encoding pulses at the start of preTime:
-            %      [marker, NDF, marker], each scaled by meaScale (so MCS
-            %      records the NDF value).
-            %
-            % Both use the same meaScale factor so the MCS can decode
-            % all values with a single inverse scaling.
-
-            meaScale = 1000 * 0.4 / 50;
-
-            if obj.autoNDF && ~isempty(obj.ledCalibration)
-                % Use the autoNDF-adjusted LED voltage so the amp
-                % encoding tracks the actual LED output at each NDF.
-                [voltages, ~, ~] = obj.computePulseTable();
-                ampAmplitude = voltages(pulseNum) * meaScale;
-            else
-                ampAmplitude = obj.PulseamplitudeForPulseNum(pulseNum);
-            end
-
-            ampDevice = obj.rig.getDevice(obj.amp);
-            background = ampDevice.background.quantity;
-            units = ampDevice.background.displayUnits;
+        function stim = createAmpTestPulseStimulus(obj)
+            % Create a flat amp stimulus at background with a test pulse
+            % embedded in pre-time for cell health monitoring.
+            device = obj.rig.getDevice(obj.amp);
+            bg = device.background.quantity;
+            units = device.background.displayUnits;
 
             timeToPts = @(t)(round(t / 1e3 * obj.sampleRate));
-            prePts  = timeToPts(obj.preTime);
-            stimPts = timeToPts(obj.stimTime);
-            tailPts = timeToPts(obj.tailTime);
-
-            % Build base waveform: background + scaled pulse.
-            data = ones(1, prePts + stimPts + tailPts) * background;
-            data(prePts+1 : prePts+stimPts) = background + ampAmplitude;
-
-            % NDF encoding: three 10-ms pulses [marker, NDF, marker],
-            % all scaled by meaScale (same conversion as the flash pulse).
-            pulsePts = timeToPts(10);  % 10 ms per step
-            gapPts  = timeToPts(5);   % 5 ms blank between steps
-            idx = 1;
-            data(idx : idx+pulsePts-1)           = 1   * meaScale;  idx = idx + pulsePts + gapPts;
-            data(idx : idx+pulsePts-1)           = ndf * meaScale;  idx = idx + pulsePts + gapPts;
-            data(idx : idx+pulsePts-1)           = 1   * meaScale;
-
-            Ampstim = obj.createStimulusFromArray(data, units);
-        end
-
-        function a = LEDamplitudeForPulseNum(obj, pulseNum)
-            a = obj.firstLightAmplitude * 2^(double(pulseNum) - 1);
-        end
-
-        function b = PulseamplitudeForPulseNum(obj, pulseNum)
-            b = obj.firstPulseAmplitude * 2^(double(pulseNum) - 1);
+            totalPts = timeToPts(obj.preTime + obj.stimTime + obj.tailTime);
+            data = ones(1, totalPts) * bg;
+            data = obj.embedTestPulse(data, obj.amp);
+            stim = obj.createStimulusFromArray(data, units);
         end
 
         % ------------------------------------------------------------------
@@ -367,17 +379,13 @@ classdef CfMeaFlashFamily < fortenbachlab.protocols.FortenbachLabProtocol
                 lightAmplitude = voltages(pulseNum);
                 ndf = ndfs(pulseNum);
 
-                [LEDstim, ~] = obj.createLedStimulus(pulseNum);
-                [Ampstim, ~] = obj.createAmpStimulus(pulseNum, ndf);
-
                 epoch.addParameter('lightAmplitude', lightAmplitude);
                 epoch.addParameter('ndf', ndf);
                 epoch.addParameter('photonFluxPeak', fluxes(pulseNum));
                 epoch.addParameter('photonFluxBackground', obj.getPhotonFlux(obj.lightMean, ndf));
             else
-                ndf = obj.getCurrentNDF();
-                [LEDstim, lightAmplitude] = obj.createLedStimulus(pulseNum);
-                [Ampstim, ~] = obj.createAmpStimulus(pulseNum, ndf);
+                lightAmplitude = obj.firstLightAmplitude * 2^(double(pulseNum) - 1);
+                ndf = obj.ndf;
 
                 epoch.addParameter('lightAmplitude', lightAmplitude);
                 epoch.addParameter('ndf', ndf);
@@ -385,8 +393,12 @@ classdef CfMeaFlashFamily < fortenbachlab.protocols.FortenbachLabProtocol
                 epoch.addParameter('photonFluxBackground', obj.getPhotonFlux(obj.lightMean, ndf));
             end
 
-            epoch.addStimulus(obj.rig.getDevice(obj.led), LEDstim);
-            epoch.addStimulus(obj.rig.getDevice(obj.amp), Ampstim);
+            epoch.addParameter('pulseNum', pulseNum);
+
+            epoch.addStimulus(obj.rig.getDevice(obj.led), obj.createLedStimulus(pulseNum));
+            if obj.cellHealthEnabled()
+                epoch.addStimulus(obj.rig.getDevice(obj.amp), obj.createAmpTestPulseStimulus());
+            end
             epoch.addResponse(obj.rig.getDevice(obj.amp));
 
             if numel(obj.rig.getDeviceNames('Amp')) >= 2
@@ -397,12 +409,25 @@ classdef CfMeaFlashFamily < fortenbachlab.protocols.FortenbachLabProtocol
         function completeEpoch(obj, epoch)
             completeEpoch@fortenbachlab.protocols.FortenbachLabProtocol(obj, epoch);
 
-            % Command the filter wheel at execution time. The interval
-            % that follows was already prepared with a 4 s duration for
-            % NDF switches, giving the wheel time to settle.
+            % Cell health metrics.
+            if obj.cellHealthEnabled()
+                try
+                    testAmp = obj.testPulseAmplitude(obj.amp);
+                    metrics = obj.computeCellHealthMetrics(epoch, obj.amp, testAmp, 5, 20);
+                    obj.saveCellHealthMetrics(epoch, metrics);
+                catch
+                end
+            end
+
+            % Command the filter wheel HERE (at execution time, not
+            % preparation time). The interval that follows this epoch
+            % was already prepared with the correct duration (2 s for
+            % NDF switches) during the preparation phase.
             if obj.autoNDF && ~isempty(obj.ledCalibration)
                 [~, ndfs, ~] = obj.computePulseTable();
+
                 thisNdf = epoch.parameters('ndf');
+
                 nextPulse = mod(obj.numEpochsCompleted, obj.pulsesInFamily) + 1;
                 nextNdf = ndfs(nextPulse);
 
@@ -464,7 +489,7 @@ classdef CfMeaFlashFamily < fortenbachlab.protocols.FortenbachLabProtocol
             if ~obj.autoNDF
                 % Legacy check: ensure the last pulse doesn't overflow.
                 units = obj.rig.getDevice(obj.led).background.displayUnits;
-                amplitude = obj.LEDamplitudeForPulseNum(obj.pulsesInFamily);
+                amplitude = obj.firstLightAmplitude * 2^(double(obj.pulsesInFamily) - 1);
                 if (strcmp(units, symphonyui.core.Measurement.NORMALIZED) && amplitude > 1) ...
                         || (strcmp(units, 'V') && amplitude > 10.239)
                     tf = false;
@@ -472,8 +497,7 @@ classdef CfMeaFlashFamily < fortenbachlab.protocols.FortenbachLabProtocol
                 end
             else
                 % Check whether any pulse in the family would exceed the
-                % LED's 10 V limit even at NDF 0 (i.e., flux is beyond
-                % what the LED can physically deliver).
+                % LED's 10 V limit even at NDF 0.
                 try
                     warnState = warning('off', 'LEDCalibration:exceedsMax');
                     [voltages, ndfs, ~] = obj.computePulseTable();
@@ -490,7 +514,7 @@ classdef CfMeaFlashFamily < fortenbachlab.protocols.FortenbachLabProtocol
         end
 
         % ------------------------------------------------------------------
-        %  Dependent property getters
+        %  Dependent property getters / setters
         % ------------------------------------------------------------------
 
         function a = get.amp2(obj)
@@ -527,11 +551,7 @@ classdef CfMeaFlashFamily < fortenbachlab.protocols.FortenbachLabProtocol
             % Parse a scientific-notation string (or number) and invert
             % the calibration to find the LED voltage needed to deliver
             % that flux for the first pulse. Sets firstLightAmplitude
-            % accordingly; subsequent pulses in the family still follow
-            % the doubling / auto-NDF logic.
-            %
-            % The NDF used for the inversion is startingNDF when autoNDF
-            % is on, otherwise the current filter-wheel NDF.
+            % accordingly.
             if isnumeric(val)
                 targetFlux = double(val);
             elseif ischar(val) || isstring(val)
@@ -549,7 +569,7 @@ classdef CfMeaFlashFamily < fortenbachlab.protocols.FortenbachLabProtocol
             end
             obj.ensureCalibrationLoaded();
             if isempty(obj.ledCalibration)
-                warning('CfMeaFlashFamily:NoCalibration', ...
+                warning('CfPatchFlashFamily:NoCalibration', ...
                     'LED calibration not loaded; cannot set photonFluxPeakMin.');
                 return;
             end
@@ -571,7 +591,7 @@ classdef CfMeaFlashFamily < fortenbachlab.protocols.FortenbachLabProtocol
                 warning(warnState);
 
                 if isempty(bestNdf)
-                    warning('CfMeaFlashFamily:fluxTooHigh', ...
+                    warning('CfPatchFlashFamily:fluxTooHigh', ...
                         'Target flux %.2e exceeds maximum at all NDFs. Clamping to max.', targetFlux);
                     bestNdf = 0;
                     bestV   = 10.239;
@@ -580,13 +600,12 @@ classdef CfMeaFlashFamily < fortenbachlab.protocols.FortenbachLabProtocol
                 obj.startingNDF = bestNdf;
                 vPeak = bestV;
             else
-                ndf = obj.getCurrentNDF();
                 warnState = warning('off', 'LEDCalibration:exceedsMax');
-                vPeak = obj.ledCalibration.fluxToVoltage(targetFlux, ndf);
+                vPeak = obj.ledCalibration.fluxToVoltage(targetFlux, obj.ndf);
                 warning(warnState);
                 if isnan(vPeak)
-                    warning('CfMeaFlashFamily:fluxTooHigh', ...
-                        'Target flux %.2e exceeds maximum at NDF %.1f. Clamping to max voltage.', targetFlux, ndf);
+                    warning('CfPatchFlashFamily:fluxTooHigh', ...
+                        'Target flux %.2e exceeds maximum at NDF %.1f. Clamping to max voltage.', targetFlux, obj.ndf);
                     vPeak = 10.239;
                 end
             end
@@ -622,7 +641,7 @@ classdef CfMeaFlashFamily < fortenbachlab.protocols.FortenbachLabProtocol
                 if obj.autoNDF
                     ndf = obj.startingNDF;
                 else
-                    ndf = obj.getCurrentNDF();
+                    ndf = obj.ndf;
                 end
                 s = obj.getPhotonFluxString(obj.lightMean, ndf);
             catch

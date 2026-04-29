@@ -16,6 +16,7 @@ classdef LEDCalibration
     properties (Access = private)
         voltage     % Calibration voltages (column vector)
         fluxNdf0    % Photons/cm2/s at NDF 0 (column vector)
+        fitCoeffs   % [slope, intercept] from linear regression (flux = slope*voltage + intercept)
     end
 
     properties (Constant)
@@ -25,14 +26,17 @@ classdef LEDCalibration
     methods
 
         function obj = LEDCalibration()
-            % Constructor: loads calibration data from file.
+            % Constructor: loads calibration data and computes linear fit.
             obj = obj.loadCalibration();
+            obj.fitCoeffs = polyfit(obj.voltage, obj.fluxNdf0, 1);
         end
 
         function flux = voltageToFlux(obj, voltage, ndf)
             % VOLTAGETOFLUX  Convert LED voltage to photon flux.
             %
             %   flux = voltageToFlux(obj, voltage, ndf)
+            %
+            %   Uses a linear best fit of the calibration data.
             %
             %   Inputs:
             %       voltage - LED driver voltage in volts (scalar or vector, 0-10V)
@@ -41,10 +45,10 @@ classdef LEDCalibration
             %   Output:
             %       flux    - Photon flux in photons/cm2/s
 
-            voltage = max(0, min(voltage, max(obj.voltage)));
+            voltage = max(0, voltage);
 
-            % Interpolate the calibration curve (pchip for smooth monotonic fit).
-            fluxBase = interp1(obj.voltage, obj.fluxNdf0, voltage, 'pchip');
+            % Linear fit: flux = slope * voltage + intercept.
+            fluxBase = max(0, polyval(obj.fitCoeffs, voltage));
 
             % Apply NDF attenuation.
             flux = fluxBase ./ (10^ndf);
@@ -54,6 +58,8 @@ classdef LEDCalibration
             % FLUXTOVOLTAGE  Convert target photon flux to required LED voltage.
             %
             %   voltage = fluxToVoltage(obj, targetFlux, ndf)
+            %
+            %   Uses the inverse of the linear best fit.
             %
             %   Inputs:
             %       targetFlux - Desired photon flux in photons/cm2/s
@@ -66,11 +72,13 @@ classdef LEDCalibration
             % Convert target flux back to NDF 0 equivalent.
             targetFluxNdf0 = targetFlux * (10^ndf);
 
-            if targetFluxNdf0 > max(obj.fluxNdf0)
+            % Max flux from the linear fit at 10V.
+            maxFlux = polyval(obj.fitCoeffs, max(obj.voltage));
+            if targetFluxNdf0 > maxFlux
                 voltage = NaN;
                 warning('LEDCalibration:exceedsMax', ...
                     'Target flux %.2e exceeds maximum achievable flux %.2e at NDF %.1f', ...
-                    targetFlux, max(obj.fluxNdf0) / (10^ndf), ndf);
+                    targetFlux, maxFlux / (10^ndf), ndf);
                 return;
             end
 
@@ -79,8 +87,11 @@ classdef LEDCalibration
                 return;
             end
 
-            % Inverse interpolation: flux -> voltage.
-            voltage = interp1(obj.fluxNdf0, obj.voltage, targetFluxNdf0, 'pchip');
+            % Inverse of linear fit: voltage = (flux - intercept) / slope.
+            slope = obj.fitCoeffs(1);
+            intercept = obj.fitCoeffs(2);
+            voltage = (targetFluxNdf0 - intercept) / slope;
+            voltage = max(0, voltage);
         end
 
         function str = fluxString(obj, voltage, ndf)

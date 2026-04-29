@@ -31,6 +31,8 @@ classdef CfPatchLedNoise < fortenbachlab.protocols.FortenbachLabProtocol
         useRandomSeed = false           % Use a random seed for each stdv level
         lightMean = 5                   % Noise mean / LED background (V)
         ndf = 0.0                       % ND filter setting
+        numberOfAverages = uint16(1)    % Number of complete families
+        interpulseInterval = 0          % Duration between noise epochs (s)
         amp                             % Input amplifier
     end
 
@@ -41,11 +43,6 @@ classdef CfPatchLedNoise < fortenbachlab.protocols.FortenbachLabProtocol
 
     properties (Dependent)
         photonFluxBackground            % Photon flux at lightMean (photons/cm2/s). Accepts scientific notation.
-    end
-
-    properties
-        numberOfAverages = uint16(1)    % Number of complete families
-        interpulseInterval = 0          % Duration between noise epochs (s)
     end
 
     properties (Hidden)

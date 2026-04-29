@@ -1,9 +1,9 @@
 classdef ProgressFigure < symphonyui.core.FigureHandler
-    
+
     properties (SetAccess = private)
         totalNumEpochs
     end
-    
+
     properties (Access = private)
         numEpochsCompleted
         numIntervalsCompleted
@@ -12,18 +12,35 @@ classdef ProgressFigure < symphonyui.core.FigureHandler
         statusText
         progressBar
         timeText
+        flashText           % Shows voltage / NDF / intensity for flash protocols
+        flashVoltages       % Voltage for each pulse in the family (numeric array)
+        flashNdfs           % NDF for each pulse in the family (numeric array)
+        flashFluxes         % Photon flux for each pulse in the family (numeric array)
+        pulsesInFamily      % Number of pulses per family cycle
     end
-    
+
     methods
-        
-        function obj = ProgressFigure(totalNumEpochs)            
+
+        function obj = ProgressFigure(totalNumEpochs, varargin)
+            ip = inputParser();
+            ip.addParameter('flashVoltages', [], @isnumeric);
+            ip.addParameter('flashNdfs', [], @isnumeric);
+            ip.addParameter('flashFluxes', [], @isnumeric);
+            ip.addParameter('pulsesInFamily', 1, @isnumeric);
+            ip.parse(varargin{:});
+
             obj.totalNumEpochs = double(totalNumEpochs);
             obj.numEpochsCompleted = 0;
             obj.numIntervalsCompleted = 0;
-            
+            obj.flashVoltages = ip.Results.flashVoltages;
+            obj.flashNdfs = ip.Results.flashNdfs;
+            obj.flashFluxes = ip.Results.flashFluxes;
+            obj.pulsesInFamily = double(ip.Results.pulsesInFamily);
+
             obj.createUi();
-            
+
             obj.updateProgress();
+            obj.updateFlashInfo();
         end
         
         function createUi(obj)
@@ -48,18 +65,22 @@ classdef ProgressFigure < symphonyui.core.FigureHandler
                 'Parent', progressLayout, ...
                 'String', '', ...
                 'HorizontalAlignment', 'left');
-            set(progressLayout, 'Heights', [23 20 23]);
-            
+            obj.flashText = Label( ...
+                'Parent', progressLayout, ...
+                'String', '', ...
+                'HorizontalAlignment', 'left');
+            set(progressLayout, 'Heights', [23 20 23 23]);
+
             uix.Empty('Parent', mainLayout);
-            
-            set(mainLayout, 'Heights', [-1 23+5+20+5+23 -1]);
+
+            set(mainLayout, 'Heights', [-1 23+5+20+5+23+5+23 -1]);
             
             set(obj.figureHandle, 'Name', 'Progress');
             set(obj.figureHandle, 'Toolbar', 'none');
             
             if isempty(obj.settings.figurePosition)
                 p = get(obj.figureHandle, 'Position');
-                set(obj.figureHandle, 'Position', [p(1) p(2) p(3) 103]);
+                set(obj.figureHandle, 'Position', [p(1) p(2) p(3) 155]);
             end
         end
         
@@ -82,18 +103,58 @@ classdef ProgressFigure < symphonyui.core.FigureHandler
                 else
                     obj.averageEpochDuration = obj.averageEpochDuration * (obj.numEpochsCompleted - 1)/obj.numEpochsCompleted + epoch.duration/obj.numEpochsCompleted;
                 end
-                
+
                 obj.updateProgress();
+                obj.updateFlashInfo();
             end
         end
         
-        function clear(obj)            
+        function clear(obj)
             obj.numEpochsCompleted = 0;
             obj.numIntervalsCompleted = 0;
             obj.averageEpochDuration = [];
             obj.averageIntervalDuration = [];
-            
+            set(obj.flashText, 'String', '');
+
             obj.updateProgress();
+        end
+
+        function updateFlashInfo(obj)
+            % Show voltage, NDF, and photon flux for the flash that is
+            % currently playing (i.e. the epoch AFTER the last one that
+            % completed). Called at construction (before any epoch plays)
+            % and after each epoch completes.
+            if isempty(obj.flashVoltages)
+                return;
+            end
+
+            nextEpoch = obj.numEpochsCompleted + 1;
+            if nextEpoch > obj.totalNumEpochs
+                set(obj.flashText, 'String', 'Complete');
+                return;
+            end
+
+            pulseIdx = mod(nextEpoch - 1, obj.pulsesInFamily) + 1;
+            voltage = obj.flashVoltages(pulseIdx);
+            ndf = obj.flashNdfs(pulseIdx);
+
+            fluxStr = '';
+            if ~isempty(obj.flashFluxes) && pulseIdx <= numel(obj.flashFluxes)
+                flux = obj.flashFluxes(pulseIdx);
+                if isfinite(flux) && flux > 0
+                    exponent = floor(log10(abs(flux)));
+                    mantissa = flux / 10^exponent;
+                    fluxStr = sprintf('%.2fe%+03d ph/cm^2/s', mantissa, exponent);
+                end
+            end
+
+            if isempty(fluxStr)
+                info = sprintf('Current flash: %.2f V  |  NDF %.1f', voltage, ndf);
+            else
+                info = sprintf('Current flash: %.2f V  |  NDF %.1f  |  %s', voltage, ndf, fluxStr);
+            end
+
+            set(obj.flashText, 'String', info);
         end
         
         function updateProgress(obj)

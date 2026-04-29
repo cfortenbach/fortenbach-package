@@ -9,6 +9,8 @@ classdef CfPatchFlash < fortenbachlab.protocols.FortenbachLabProtocol
         lightAmplitude = 5              % Pulse amplitude (V or norm. [0-1] depending on LED units)
         lightMean = 0                   % Pulse and LED background mean (V or norm. [0-1] depending on LED units)
         ndf = 0.0                       % ND filter setting
+        numberOfAverages = uint16(5)    % Number of epochs
+        interpulseInterval = 0          % Duration between pulses (s)
         amp                             % Input amplifier
     end
 
@@ -22,8 +24,9 @@ classdef CfPatchFlash < fortenbachlab.protocols.FortenbachLabProtocol
     end
 
     properties
-        numberOfAverages = uint16(5)    % Number of epochs
-        interpulseInterval = 0          % Duration between pulses (s)
+        showOnsetFigure = true          % Show zoomed flash onset figure
+        onsetPrePad = 5                 % Flash onset window: ms before onset
+        onsetPostPad = 100              % Flash onset window: ms after onset
     end
 
     properties (Hidden)
@@ -69,8 +72,10 @@ classdef CfPatchFlash < fortenbachlab.protocols.FortenbachLabProtocol
             prepareRun@fortenbachlab.protocols.FortenbachLabProtocol(obj);
             
             if numel(obj.rig.getDeviceNames('Amp')) < 2
-                obj.showFigure('symphonyui.builtin.figures.ResponseFigure', obj.rig.getDevice(obj.amp));
-                obj.showFigure('symphonyui.builtin.figures.MeanResponseFigure', obj.rig.getDevice(obj.amp));
+                obj.showFigure('fortenbachlab.figures.ResponseStimulusFigure', ...
+                    obj.rig.getDevice(obj.amp), obj.rig.getDevice(obj.led));
+                obj.showFigure('fortenbachlab.figures.MeanResponseFigure', obj.rig.getDevice(obj.amp), ...
+                    'ledDevice', obj.rig.getDevice(obj.led));
                 obj.showFigure('symphonyui.builtin.figures.ResponseStatisticsFigure', obj.rig.getDevice(obj.amp), {@mean, @var}, ...
                     'baselineRegion', [0 obj.preTime], ...
                     'measurementRegion', [obj.preTime obj.preTime+obj.stimTime]);
@@ -107,7 +112,18 @@ classdef CfPatchFlash < fortenbachlab.protocols.FortenbachLabProtocol
                 obj.warnCellHealthDisabled();
             end
 
-            obj.showFigure('fortenbachlab.figures.ProgressFigure', obj.numberOfAverages);
+            if obj.showOnsetFigure
+                obj.showFigure('fortenbachlab.figures.FlashOnsetFigure', obj.rig.getDevice(obj.amp), ...
+                    'preTime', obj.preTime, ...
+                    'prePad', obj.onsetPrePad, ...
+                    'postPad', obj.onsetPostPad, ...
+                    'ledDevice', obj.rig.getDevice(obj.led));
+            end
+
+            obj.showFigure('fortenbachlab.figures.ProgressFigure', obj.numberOfAverages, ...
+                'flashVoltages', obj.lightAmplitude, ...
+                'flashNdfs', obj.ndf, ...
+                'flashFluxes', obj.getPhotonFlux(obj.lightMean + obj.lightAmplitude, obj.ndf));
         end
         
         function stim = createLedStimulus(obj)

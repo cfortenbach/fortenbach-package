@@ -21,10 +21,13 @@ classdef CfPatchIvCurve < fortenbachlab.protocols.FortenbachLabProtocol
         firstPulseSignal = -80          % First pulse signal value (mV or pA depending on amp mode)
         incrementPerPulse = 10          % Increment value per each pulse (mV or pA depending on amp mode)
         pulsesInFamily = uint16(11)     % Number of pulses in family
+        numberOfAverages = uint16(5)    % Number of families
+        interpulseInterval = 0          % Duration between pulses (s)
         lightOn = false                 % Turn on continuous background light during run
         led                             % Output LED (used when lightOn is true)
         lightMean = 0                   % LED background voltage (V [0-10])
         ndf = 0.0                       % ND filter setting (applied to filter wheel when lightOn is true)
+        amp2PulseSignal = -60           % Pulse signal value for secondary amp (mV or pA depending on amp2 mode)
     end
 
     properties (Dependent, SetAccess = private)
@@ -33,12 +36,6 @@ classdef CfPatchIvCurve < fortenbachlab.protocols.FortenbachLabProtocol
 
     properties (Dependent)
         photonFluxBackground            % Estimated photon flux at lightMean (photons/cm2/s). Accepts scientific notation, e.g. '1.5e15'.
-    end
-
-    properties
-        amp2PulseSignal = -60           % Pulse signal value for secondary amp (mV or pA depending on amp2 mode)
-        numberOfAverages = uint16(5)    % Number of families
-        interpulseInterval = 0          % Duration between pulses (s)
     end
 
     properties (Hidden)

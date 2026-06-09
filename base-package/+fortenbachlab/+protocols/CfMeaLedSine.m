@@ -22,11 +22,11 @@ classdef CfMeaLedSine < fortenbachlab.protocols.FortenbachLabProtocol
         period                          % Sine period (ms), calculated from frequency
         MEA_mean                        % Mean voltage output to MCS (auto-calculated)
         MEA_amp                         % Amp voltage output to MCS (auto-calculated)
-        photonFluxBackground            % Estimated photon flux at mean voltage (photons/cm2/s)
+        backgroundIntensity            % Background intensity (photons/cm2/s)
     end
 
     properties (Dependent)
-        photonFluxPeak                  % Peak photon flux (photons/cm2/s). Accepts scientific notation, e.g. '1.5e15'.
+        flashIntensity                  % Flash intensity (photons/cm2/s). Accepts scientific notation, e.g. '1.5e15'.
     end
 
     properties (Hidden)
@@ -69,9 +69,9 @@ classdef CfMeaLedSine < fortenbachlab.protocols.FortenbachLabProtocol
                     {0, 0.5, 1.0, 2.0, 3.0, 4.0});
             end
 
-            % Treat photonFluxPeak as an editable string so scientific
+            % Treat flashIntensity as an editable string so scientific
             % notation input (e.g. "1.5e15") is accepted and displayed.
-            if strcmp(name, 'photonFluxPeak')
+            if strcmp(name, 'flashIntensity')
                 d.type = symphonyui.core.PropertyType('char', 'row');
             end
         end
@@ -155,7 +155,7 @@ classdef CfMeaLedSine < fortenbachlab.protocols.FortenbachLabProtocol
         function prepareEpoch(obj, epoch)
             prepareEpoch@fortenbachlab.protocols.FortenbachLabProtocol(obj, epoch);
 
-            % Record photon flux and NDF to epoch metadata.
+            % Record flash intensity and NDF to epoch metadata.
             ndf = obj.ndf;
 
             epoch.addStimulus(obj.rig.getDevice(obj.led), obj.createLedStimulus());
@@ -200,7 +200,7 @@ classdef CfMeaLedSine < fortenbachlab.protocols.FortenbachLabProtocol
             end
         end
 
-        function s = get.photonFluxPeak(obj)
+        function s = get.flashIntensity(obj)
             % Return the peak flux as a scientific-notation string.
             try
                 f = obj.getPhotonFlux(obj.lightMean + obj.lightAmplitude, obj.ndf);
@@ -216,7 +216,7 @@ classdef CfMeaLedSine < fortenbachlab.protocols.FortenbachLabProtocol
             end
         end
 
-        function set.photonFluxPeak(obj, val)
+        function set.flashIntensity(obj, val)
             % Parse the user-entered string (scientific notation OK, e.g.
             % '1.5e15', '1.5E+15', '2.55e+16 photons/cm2/s') and invert
             % the calibration to find the required total LED voltage at
@@ -240,7 +240,7 @@ classdef CfMeaLedSine < fortenbachlab.protocols.FortenbachLabProtocol
             obj.ensureCalibrationLoaded();
             if isempty(obj.ledCalibration)
                 warning('CfMeaLedSine:NoCalibration', ...
-                    'LED calibration not loaded; cannot set photonFluxPeak.');
+                    'LED calibration not loaded; cannot set flashIntensity.');
                 return;
             end
             vPeak = obj.ledCalibration.fluxToVoltage(targetFlux, obj.ndf);
@@ -254,7 +254,7 @@ classdef CfMeaLedSine < fortenbachlab.protocols.FortenbachLabProtocol
             obj.lightAmplitude = newAmplitude;
         end
 
-        function s = get.photonFluxBackground(obj)
+        function s = get.backgroundIntensity(obj)
             try
                 ndf = obj.ndf;
                 s = obj.getPhotonFluxString(obj.lightMean, ndf);

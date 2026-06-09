@@ -19,8 +19,8 @@ classdef CfPatchFlash < fortenbachlab.protocols.FortenbachLabProtocol
     end
 
     properties (Dependent)
-        photonFluxPeak                  % Estimated photon flux at peak (photons/cm2/s). Accepts scientific notation.
-        photonFluxBackground            % Estimated photon flux at background (photons/cm2/s). Accepts scientific notation.
+        flashIntensity                  % Flash intensity (photons/cm2/s). Accepts scientific notation.
+        backgroundIntensity            % Background intensity (photons/cm2/s). Accepts scientific notation.
     end
 
     properties
@@ -57,9 +57,9 @@ classdef CfPatchFlash < fortenbachlab.protocols.FortenbachLabProtocol
                     {0, 0.5, 1.0, 2.0, 3.0, 4.0});
             end
 
-            % Treat photon flux fields as editable strings so scientific
+            % Treat flash intensity fields as editable strings so scientific
             % notation input (e.g. "1.5e15") is accepted and displayed.
-            if strcmp(name, 'photonFluxPeak') || strcmp(name, 'photonFluxBackground')
+            if strcmp(name, 'flashIntensity') || strcmp(name, 'backgroundIntensity')
                 d.type = symphonyui.core.PropertyType('char', 'row');
             end
         end
@@ -163,7 +163,7 @@ classdef CfPatchFlash < fortenbachlab.protocols.FortenbachLabProtocol
             end
             epoch.addResponse(obj.rig.getDevice(obj.amp));
 
-            % Record photon flux and NDF to epoch metadata.
+            % Record flash intensity and NDF to epoch metadata.
             epoch.addParameter('ndf', obj.ndf);
             epoch.addParameter('photonFluxPeak', obj.getPhotonFlux(obj.lightMean + obj.lightAmplitude, obj.ndf));
             epoch.addParameter('photonFluxBackground', obj.getPhotonFlux(obj.lightMean, obj.ndf));
@@ -211,7 +211,7 @@ classdef CfPatchFlash < fortenbachlab.protocols.FortenbachLabProtocol
             end
         end
 
-        function set.photonFluxPeak(obj, val)
+        function set.flashIntensity(obj, val)
             % Parse scientific notation (e.g. '1.5e15') and invert the
             % calibration to set lightAmplitude = vPeak - lightMean.
             if isnumeric(val)
@@ -228,7 +228,7 @@ classdef CfPatchFlash < fortenbachlab.protocols.FortenbachLabProtocol
             obj.ensureCalibrationLoaded();
             if isempty(obj.ledCalibration)
                 warning('CfPatchFlash:NoCalibration', ...
-                    'LED calibration not loaded; cannot set photonFluxPeak.');
+                    'LED calibration not loaded; cannot set flashIntensity.');
                 return;
             end
             vPeak = obj.ledCalibration.fluxToVoltage(targetFlux, obj.ndf);
@@ -238,7 +238,7 @@ classdef CfPatchFlash < fortenbachlab.protocols.FortenbachLabProtocol
             obj.lightAmplitude = newAmplitude;
         end
 
-        function set.photonFluxBackground(obj, val)
+        function set.backgroundIntensity(obj, val)
             % Parse scientific notation (e.g. '1.5e15') and invert the
             % calibration to set lightMean.
             if isnumeric(val)
@@ -255,7 +255,7 @@ classdef CfPatchFlash < fortenbachlab.protocols.FortenbachLabProtocol
             obj.ensureCalibrationLoaded();
             if isempty(obj.ledCalibration)
                 warning('CfPatchFlash:NoCalibration', ...
-                    'LED calibration not loaded; cannot set photonFluxBackground.');
+                    'LED calibration not loaded; cannot set backgroundIntensity.');
                 return;
             end
             vMean = obj.ledCalibration.fluxToVoltage(targetFlux, obj.ndf);
@@ -264,7 +264,7 @@ classdef CfPatchFlash < fortenbachlab.protocols.FortenbachLabProtocol
             obj.lightMean = vMean;
         end
 
-        function s = get.photonFluxPeak(obj)
+        function s = get.flashIntensity(obj)
             try
                 f = obj.getPhotonFlux(obj.lightMean + obj.lightAmplitude, obj.ndf);
                 if isempty(f) || ~isfinite(f) || f == 0
@@ -279,7 +279,7 @@ classdef CfPatchFlash < fortenbachlab.protocols.FortenbachLabProtocol
             end
         end
 
-        function s = get.photonFluxBackground(obj)
+        function s = get.backgroundIntensity(obj)
             try
                 f = obj.getPhotonFlux(obj.lightMean, obj.ndf);
                 if isempty(f) || ~isfinite(f) || f == 0

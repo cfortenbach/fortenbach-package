@@ -35,7 +35,7 @@ classdef CfPatchIvCurve < fortenbachlab.protocols.FortenbachLabProtocol
     end
 
     properties (Dependent)
-        photonFluxBackground            % Estimated photon flux at lightMean (photons/cm2/s). Accepts scientific notation, e.g. '1.5e15'.
+        backgroundIntensity            % Background intensity (photons/cm2/s). Accepts scientific notation, e.g. '1.5e15'.
     end
 
     properties (Hidden)
@@ -63,7 +63,7 @@ classdef CfPatchIvCurve < fortenbachlab.protocols.FortenbachLabProtocol
 
             % Hide light-related fields when lightOn is false.
             if ~obj.lightOn && (strcmp(name, 'led') || strcmp(name, 'lightMean') ...
-                    || strcmp(name, 'ndf') || strcmp(name, 'photonFluxBackground'))
+                    || strcmp(name, 'ndf') || strcmp(name, 'backgroundIntensity'))
                 d.isHidden = true;
             end
 
@@ -73,9 +73,9 @@ classdef CfPatchIvCurve < fortenbachlab.protocols.FortenbachLabProtocol
                     {0, 0.5, 1.0, 2.0, 3.0, 4.0});
             end
 
-            % Treat photonFluxBackground as an editable string so scientific
+            % Treat backgroundIntensity as an editable string so scientific
             % notation input (e.g. "1.5e15") is accepted and displayed.
-            if strcmp(name, 'photonFluxBackground')
+            if strcmp(name, 'backgroundIntensity')
                 d.type = symphonyui.core.PropertyType('char', 'row');
             end
         end
@@ -357,7 +357,7 @@ classdef CfPatchIvCurve < fortenbachlab.protocols.FortenbachLabProtocol
             end
         end
 
-        function s = get.photonFluxBackground(obj)
+        function s = get.backgroundIntensity(obj)
             if ~obj.lightOn
                 s = 'light off';
                 return;
@@ -376,7 +376,7 @@ classdef CfPatchIvCurve < fortenbachlab.protocols.FortenbachLabProtocol
             end
         end
 
-        function set.photonFluxBackground(obj, val)
+        function set.backgroundIntensity(obj, val)
             if isnumeric(val)
                 targetFlux = double(val);
             elseif ischar(val) || isstring(val)
@@ -391,7 +391,7 @@ classdef CfPatchIvCurve < fortenbachlab.protocols.FortenbachLabProtocol
             obj.ensureCalibrationLoaded();
             if isempty(obj.ledCalibration)
                 warning('CfPatchIvCurve:NoCalibration', ...
-                    'LED calibration not loaded; cannot set photonFluxBackground.');
+                    'LED calibration not loaded; cannot set backgroundIntensity.');
                 return;
             end
             vMean = obj.ledCalibration.fluxToVoltage(targetFlux, obj.ndf);

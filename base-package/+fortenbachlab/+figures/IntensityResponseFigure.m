@@ -52,7 +52,7 @@ classdef IntensityResponseFigure < symphonyui.core.FigureHandler
             set(obj.figureHandle, 'Name', 'Intensity-Response');
 
             obj.ax = axes('Parent', obj.figureHandle);
-            xlabel(obj.ax, 'Photon Flux (photons/cm^2/s)');
+            xlabel(obj.ax, 'Flash Intensity (photons/cm^2/s)');
             ylabel(obj.ax, 'Peak Response');
             title(obj.ax, 'Intensity-Response Curve');
             set(obj.ax, 'XScale', 'log');
@@ -190,7 +190,7 @@ classdef IntensityResponseFigure < symphonyui.core.FigureHandler
             end
 
             set(obj.ax, 'XScale', 'log');
-            xlabel(obj.ax, 'Photon Flux (photons/cm^2/s)');
+            xlabel(obj.ax, 'Flash Intensity (photons/cm^2/s)');
             ylabel(obj.ax, 'Peak Response');
             title(obj.ax, sprintf('Intensity-Response  (%d intensities)', n));
             grid(obj.ax, 'on');

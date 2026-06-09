@@ -2,11 +2,15 @@ classdef CfPatchFlashFamily < fortenbachlab.protocols.FortenbachLabProtocol
     % Presents families of escalating-intensity flash stimuli to an LED and
     % records from an amplifier in voltage-clamp or current-clamp mode.
     %
-    % Each family consists of pulsesInFamily flashes. The LED voltage doubles
-    % with each successive pulse. When autoNDF is enabled, the filter wheel
-    % automatically advances to the next lower NDF (more light) when the
-    % voltage would exceed 10 V, and the voltage is recomputed via the
-    % calibration curve to deliver 2x the flux of the previous pulse.
+    % Each family consists of pulsesInFamily flashes ordered dim to bright.
+    % When autoNDF is enabled, the protocol works backward from maximum
+    % intensity: the brightest pulse is MAX_LED_VOLTAGE at NDF 0, and each
+    % preceding pulse targets half the flux. When voltage would drop below
+    % MIN_LED_VOLTAGE, the filter wheel switches to a higher NDF (more
+    % attenuation) to restore DAC resolution.
+    %
+    % When autoNDF is off, voltage doubles each step at the current NDF
+    % (legacy behaviour).
     %
     % The amplifier AO delivers a flat holding potential (at the amp
     % background) with an optional cell health test pulse embedded in
@@ -22,7 +26,7 @@ classdef CfPatchFlashFamily < fortenbachlab.protocols.FortenbachLabProtocol
     %   - Voltage-doubling flash family with automatic NDF switching
     %   - Cell health monitoring (Rinput, Ihold) via test pulse in pre-time
     %   - Flash onset figure (zoomed view around flash onset)
-    %   - Photon flux display and entry in scientific notation
+    %   - Flash intensity display and entry in scientific notation
     %   - Hardware-timed filter wheel settle delay (2 s via prepareInterval)
     %   - Dual amplifier support
 
@@ -31,11 +35,11 @@ classdef CfPatchFlashFamily < fortenbachlab.protocols.FortenbachLabProtocol
         preTime = 50                    % Pulse leading duration (ms)
         stimTime = 10                   % Pulse duration (ms)
         tailTime = 3000                 % Pulse trailing duration (ms)
-        firstLightAmplitude = 1         % First pulse amplitude (V [0-10])
-        pulsesInFamily = uint16(3)      % Number of pulses in family
+        firstLightAmplitude = 0.02      % First pulse amplitude (V [0-10])
+        pulsesInFamily = uint16(10)     % Number of flash intensities
         lightMean = 0                   % Pulse and LED background mean (V)
         ndf = 0.0                       % ND filter setting (when autoNDF is off)
-        autoNDF = false                 % Automatically switch NDF when voltage exceeds 10 V
+        autoNDF = true                  % Automatically switch NDF when voltage exceeds 10 V
         startingNDF = 4.0               % Starting NDF value (used when autoNDF is true)
         numberOfAverages = uint16(5)    % Number of family repeats
         interpulseInterval = 0          % Duration between pulses (s)
@@ -44,12 +48,12 @@ classdef CfPatchFlashFamily < fortenbachlab.protocols.FortenbachLabProtocol
 
     properties (Dependent, SetAccess = private)
         amp2                            % Secondary amplifier
-        photonFluxPeakMax               % Photon flux at last (brightest) pulse
-        photonFluxBackground            % Estimated photon flux at lightMean
+        flashIntensityMax               % Flash intensity at brightest pulse
+        backgroundIntensity            % Background intensity (photons/cm2/s)
     end
 
     properties (Dependent)
-        photonFluxPeakMin               % Photon flux at first (dimmest) pulse. Accepts scientific notation.
+        flashIntensityMin               % Flash intensity at dimmest pulse. Accepts scientific notation.
     end
 
     properties
@@ -69,6 +73,8 @@ classdef CfPatchFlashFamily < fortenbachlab.protocols.FortenbachLabProtocol
 
     properties (Constant, Hidden)
         NDF_VALUES = [0 0.5 1.0 2.0 3.0 4.0];  % Available NDF positions (ascending)
+        MAX_LED_VOLTAGE = 10;       % Maximum LED command voltage (V)
+        MIN_LED_VOLTAGE = 0.5;      % Minimum usable voltage for good DAC resolution
     end
 
     methods
@@ -87,12 +93,17 @@ classdef CfPatchFlashFamily < fortenbachlab.protocols.FortenbachLabProtocol
                 d.isHidden = true;
             end
 
-            % Hide startingNDF when autoNDF is off; hide ndf when autoNDF is on.
-            if strcmp(name, 'startingNDF') && ~obj.autoNDF
-                d.isHidden = true;
-            end
-            if strcmp(name, 'ndf') && obj.autoNDF
-                d.isHidden = true;
+            % When autoNDF is on: hide firstLightAmplitude, startingNDF, ndf
+            % (the pulse table is computed backward from 10V/NDF0).
+            % When autoNDF is off: hide startingNDF (legacy voltage doubling).
+            if obj.autoNDF
+                if strcmp(name, 'firstLightAmplitude') || strcmp(name, 'startingNDF') || strcmp(name, 'ndf')
+                    d.isHidden = true;
+                end
+            else
+                if strcmp(name, 'startingNDF')
+                    d.isHidden = true;
+                end
             end
 
             % Constrain NDF to valid filter wheel values.
@@ -101,9 +112,10 @@ classdef CfPatchFlashFamily < fortenbachlab.protocols.FortenbachLabProtocol
                     {0, 0.5, 1.0, 2.0, 3.0, 4.0});
             end
 
-            % Treat photon flux fields as editable strings so scientific
+            % Treat flash intensity fields as editable strings so scientific
             % notation input (e.g. "1.5e15") is accepted and displayed.
-            if strcmp(name, 'photonFluxPeakMin')
+            % Read-only when autoNDF is on (min is computed from the table).
+            if strcmp(name, 'flashIntensityMin') && ~obj.autoNDF
                 d.type = symphonyui.core.PropertyType('char', 'row');
             end
         end
@@ -144,22 +156,24 @@ classdef CfPatchFlashFamily < fortenbachlab.protocols.FortenbachLabProtocol
                     'measurementRegion2', [obj.preTime obj.preTime+obj.stimTime]);
             end
 
-            % Set filter wheel to starting NDF.
+            % Set filter wheel to the NDF of the first (dimmest) pulse.
             if obj.autoNDF
+                [~, tableNdfs, ~] = obj.computePulseTable();
+                firstNdf = tableNdfs(1);
                 try
                     fws = obj.rig.getDevices('FilterWheel');
                     if ~isempty(fws)
                         currentNDF = fws{1}.getConfigurationSetting('NDF');
-                        obj.setFilterWheelNDF(obj.startingNDF);
-                        if ~isequal(currentNDF, obj.startingNDF)
+                        obj.setFilterWheelNDF(firstNdf);
+                        if ~isequal(currentNDF, firstNdf)
                             pause(4);
                         end
                     end
                 catch
-                    obj.setFilterWheelNDF(obj.startingNDF);
+                    obj.setFilterWheelNDF(firstNdf);
                     pause(4);
                 end
-                obj.lastNdf = obj.startingNDF;
+                obj.lastNdf = firstNdf;
             else
                 % Set filter wheel to selected NDF with settle time.
                 try
@@ -212,20 +226,22 @@ classdef CfPatchFlashFamily < fortenbachlab.protocols.FortenbachLabProtocol
         % ------------------------------------------------------------------
 
         function [voltages, ndfs, fluxes] = computePulseTable(obj)
-            % COMPUTEPULSETABLE  Pre-compute voltage, NDF, and photon flux
+            % COMPUTEPULSETABLE  Pre-compute voltage, NDF, and flash intensity
             % for every pulse in the family.
             %
             % When autoNDF is false: voltage doubles each step at the
             % current NDF setting.
             %
-            % When autoNDF is true:
-            %   1. The first pulse is firstLightAmplitude at startingNDF.
-            %   2. The LED voltage doubles each step.
-            %   3. When the doubled voltage would exceed 10 V, the filter
-            %      wheel steps to the next lower NDF (more light) and the
-            %      voltage is recomputed from the calibration curve to
-            %      deliver 2x the flux of the previous pulse.
-            %   4. Voltage doubling then continues at the new NDF.
+            % When autoNDF is true (backward from maximum):
+            %   1. The brightest pulse (index N) is MAX_LED_VOLTAGE at NDF 0.
+            %   2. Work backward: each preceding pulse targets half the flux.
+            %   3. Compute voltage at current NDF for target flux via
+            %      calibration.
+            %   4. If voltage drops below MIN_LED_VOLTAGE (poor DAC
+            %      resolution), switch to the next HIGHER NDF and recompute
+            %      — more attenuation requires more voltage for the same
+            %      flux, restoring DAC resolution.
+            %   5. Result is ordered dim (index 1) to bright (index N).
 
             n = double(obj.pulsesInFamily);
             voltages = zeros(1, n);
@@ -236,11 +252,7 @@ classdef CfPatchFlashFamily < fortenbachlab.protocols.FortenbachLabProtocol
 
             if ~obj.autoNDF || isempty(obj.ledCalibration)
                 % --- Legacy behaviour: simple voltage doubling --------
-                if obj.autoNDF
-                    ndf = obj.startingNDF;
-                else
-                    ndf = obj.ndf;
-                end
+                ndf = obj.ndf;
                 for i = 1:n
                     v = obj.firstLightAmplitude * 2^(i - 1);
                     voltages(i) = v;
@@ -252,56 +264,67 @@ classdef CfPatchFlashFamily < fortenbachlab.protocols.FortenbachLabProtocol
                 return;
             end
 
-            % --- Auto-NDF: voltage doubling with NDF transitions ------
+            % --- Auto-NDF (backward from maximum intensity) -----------
             cal = obj.ledCalibration;
-            currentNdf = obj.startingNDF;
 
-            % First pulse.
-            voltages(1) = obj.firstLightAmplitude;
-            ndfs(1)     = currentNdf;
-            fluxes(1)   = cal.voltageToFlux(obj.lightMean + obj.firstLightAmplitude, currentNdf);
+            % Pulse N (brightest): MAX_LED_VOLTAGE at NDF 0.
+            voltages(n) = obj.MAX_LED_VOLTAGE;
+            ndfs(n)     = 0;
+            fluxes(n)   = cal.voltageToFlux(obj.lightMean + obj.MAX_LED_VOLTAGE, 0);
 
-            for i = 2:n
-                nextAmplitude = voltages(i - 1) * 2;
+            currentNdf = 0;
 
-                if obj.lightMean + nextAmplitude <= 10.239
-                    % Doubled voltage fits at current NDF — use it.
-                    voltages(i) = nextAmplitude;
+            % Work backward from brightest to dimmest.
+            for i = (n - 1):-1:1
+                targetFlux = fluxes(i + 1) / 2;
+
+                % Try current NDF first.
+                warnState = warning('off', 'LEDCalibration:exceedsMax');
+                vTotal = cal.fluxToVoltage(targetFlux, currentNdf);
+                warning(warnState);
+                amplitude = vTotal - obj.lightMean;
+
+                if ~isnan(vTotal) && amplitude >= obj.MIN_LED_VOLTAGE
+                    % Good DAC resolution at current NDF.
+                    voltages(i) = amplitude;
                     ndfs(i)     = currentNdf;
-                    fluxes(i)   = cal.voltageToFlux(obj.lightMean + nextAmplitude, currentNdf);
+                    fluxes(i)   = cal.voltageToFlux(obj.lightMean + amplitude, currentNdf);
                 else
-                    % Doubled voltage exceeds 10 V — switch NDF.
-                    % Target: 2x the flux of the previous pulse.
-                    prevFlux = fluxes(i - 1);
-                    targetFlux = 2 * prevFlux;
-
-                    warnState = warning('off', 'LEDCalibration:exceedsMax');
+                    % Voltage too low — switch to higher NDF for better
+                    % DAC resolution.
                     stepped = false;
                     ndfIdx = find(obj.NDF_VALUES == currentNdf, 1);
-                    while ndfIdx > 1
-                        ndfIdx = ndfIdx - 1;
+                    warnState = warning('off', 'LEDCalibration:exceedsMax');
+                    while ndfIdx < numel(obj.NDF_VALUES)
+                        ndfIdx = ndfIdx + 1;
                         candidateNdf = obj.NDF_VALUES(ndfIdx);
                         vTotal = cal.fluxToVoltage(targetFlux, candidateNdf);
-                        if ~isnan(vTotal) && vTotal <= 10.239
+                        amplitude = vTotal - obj.lightMean;
+                        if ~isnan(vTotal) && amplitude >= obj.MIN_LED_VOLTAGE
                             currentNdf = candidateNdf;
                             stepped = true;
                             break;
                         end
                     end
+                    warning(warnState);
 
                     if ~stepped
-                        % Even NDF 0 can't deliver 2x flux. Clip.
-                        currentNdf = 0;
-                        vTotal = 10.239;
+                        % Even highest NDF can't achieve MIN_LED_VOLTAGE.
+                        % Use highest NDF with whatever voltage we get.
+                        currentNdf = obj.NDF_VALUES(end);
+                        warnState = warning('off', 'LEDCalibration:exceedsMax');
+                        vTotal = cal.fluxToVoltage(targetFlux, currentNdf);
                         warning(warnState);
-                        warning('CfPatchFlashFamily:fluxClipped', ...
-                            'Pulse %d: target flux %.2e exceeds maximum at all NDFs. Clipping.', ...
-                            i, targetFlux);
-                    else
-                        warning(warnState);
+                        if isnan(vTotal) || vTotal < obj.lightMean
+                            amplitude = obj.MIN_LED_VOLTAGE;
+                        else
+                            amplitude = vTotal - obj.lightMean;
+                        end
+                        warning('CfPatchFlashFamily:lowResolution', ...
+                            'Pulse %d: voltage %.3fV at NDF %.1f below min threshold.', ...
+                            i, amplitude, currentNdf);
                     end
 
-                    amplitude = max(0, vTotal - obj.lightMean);
                     voltages(i) = amplitude;
                     ndfs(i)     = currentNdf;
                     fluxes(i)   = cal.voltageToFlux(obj.lightMean + amplitude, currentNdf);
@@ -495,22 +518,9 @@ classdef CfPatchFlashFamily < fortenbachlab.protocols.FortenbachLabProtocol
                     tf = false;
                     msg = 'Last pulse amplitude too large';
                 end
-            else
-                % Check whether any pulse in the family would exceed the
-                % LED's 10 V limit even at NDF 0.
-                try
-                    warnState = warning('off', 'LEDCalibration:exceedsMax');
-                    [voltages, ndfs, ~] = obj.computePulseTable();
-                    warning(warnState);
-                    lastIdx = find(ndfs == 0 & voltages >= (10.239 - obj.lightMean), 1);
-                    if ~isempty(lastIdx)
-                        tf = false;
-                        msg = sprintf(['Pulse %d exceeds LED max at NDF 0. ' ...
-                            'Reduce pulsesInFamily or increase startingNDF.'], lastIdx);
-                    end
-                catch
-                end
             end
+            % When autoNDF is on, the table is valid by construction:
+            % brightest pulse is always MAX_LED_VOLTAGE at NDF 0.
         end
 
         % ------------------------------------------------------------------
@@ -527,8 +537,8 @@ classdef CfPatchFlashFamily < fortenbachlab.protocols.FortenbachLabProtocol
             end
         end
 
-        function s = get.photonFluxPeakMin(obj)
-            % Photon flux at the first (dimmest) pulse.
+        function s = get.flashIntensityMin(obj)
+            % Flash intensity at the first (dimmest) pulse.
             try
                 warnState = warning('off', 'LEDCalibration:exceedsMax');
                 [voltages, ndfs, fluxes] = obj.computePulseTable();
@@ -547,7 +557,13 @@ classdef CfPatchFlashFamily < fortenbachlab.protocols.FortenbachLabProtocol
             end
         end
 
-        function set.photonFluxPeakMin(obj, val)
+        function set.flashIntensityMin(obj, val)
+            % When autoNDF is on, the dimmest pulse is determined by the
+            % backward-from-max algorithm — user cannot override it.
+            if obj.autoNDF
+                return;
+            end
+
             % Parse a scientific-notation string (or number) and invert
             % the calibration to find the LED voltage needed to deliver
             % that flux for the first pulse. Sets firstLightAmplitude
@@ -570,44 +586,16 @@ classdef CfPatchFlashFamily < fortenbachlab.protocols.FortenbachLabProtocol
             obj.ensureCalibrationLoaded();
             if isempty(obj.ledCalibration)
                 warning('CfPatchFlashFamily:NoCalibration', ...
-                    'LED calibration not loaded; cannot set photonFluxPeakMin.');
+                    'LED calibration not loaded; cannot set flashIntensityMin.');
                 return;
             end
-            if obj.autoNDF
-                % Find the highest NDF (most attenuation) that can still
-                % deliver the target flux within the LED's 10 V range.
-                warnState = warning('off', 'LEDCalibration:exceedsMax');
-                bestNdf = [];
-                bestV   = NaN;
-                for k = numel(obj.NDF_VALUES):-1:1
-                    candidateNdf = obj.NDF_VALUES(k);
-                    v = obj.ledCalibration.fluxToVoltage(targetFlux, candidateNdf);
-                    if ~isnan(v) && v <= 10.239
-                        bestNdf = candidateNdf;
-                        bestV   = v;
-                        break;
-                    end
-                end
-                warning(warnState);
-
-                if isempty(bestNdf)
-                    warning('CfPatchFlashFamily:fluxTooHigh', ...
-                        'Target flux %.2e exceeds maximum at all NDFs. Clamping to max.', targetFlux);
-                    bestNdf = 0;
-                    bestV   = 10.239;
-                end
-
-                obj.startingNDF = bestNdf;
-                vPeak = bestV;
-            else
-                warnState = warning('off', 'LEDCalibration:exceedsMax');
-                vPeak = obj.ledCalibration.fluxToVoltage(targetFlux, obj.ndf);
-                warning(warnState);
-                if isnan(vPeak)
-                    warning('CfPatchFlashFamily:fluxTooHigh', ...
-                        'Target flux %.2e exceeds maximum at NDF %.1f. Clamping to max voltage.', targetFlux, obj.ndf);
-                    vPeak = 10.239;
-                end
+            warnState = warning('off', 'LEDCalibration:exceedsMax');
+            vPeak = obj.ledCalibration.fluxToVoltage(targetFlux, obj.ndf);
+            warning(warnState);
+            if isnan(vPeak)
+                warning('CfPatchFlashFamily:fluxTooHigh', ...
+                    'Target flux %.2e exceeds maximum at NDF %.1f. Clamping to max voltage.', targetFlux, obj.ndf);
+                vPeak = 10.239;
             end
             newAmplitude = vPeak - obj.lightMean;
             if newAmplitude < 0
@@ -616,8 +604,8 @@ classdef CfPatchFlashFamily < fortenbachlab.protocols.FortenbachLabProtocol
             obj.firstLightAmplitude = newAmplitude;
         end
 
-        function s = get.photonFluxPeakMax(obj)
-            % Photon flux at the last (brightest) pulse.
+        function s = get.flashIntensityMax(obj)
+            % Flash intensity at the last (brightest) pulse.
             try
                 warnState = warning('off', 'LEDCalibration:exceedsMax');
                 [voltages, ndfs, fluxes] = obj.computePulseTable();
@@ -636,10 +624,11 @@ classdef CfPatchFlashFamily < fortenbachlab.protocols.FortenbachLabProtocol
             end
         end
 
-        function s = get.photonFluxBackground(obj)
+        function s = get.backgroundIntensity(obj)
             try
-                if obj.autoNDF
-                    ndf = obj.startingNDF;
+                if obj.autoNDF && ~isempty(obj.ledCalibration)
+                    [~, tableNdfs, ~] = obj.computePulseTable();
+                    ndf = tableNdfs(1);  % NDF at start of run (dimmest pulse)
                 else
                     ndf = obj.ndf;
                 end

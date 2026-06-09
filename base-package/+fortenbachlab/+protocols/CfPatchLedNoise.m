@@ -14,7 +14,7 @@ classdef CfPatchLedNoise < fortenbachlab.protocols.FortenbachLabProtocol
     % style lowpass filter at frequencyCutoff Hz, using GaussianNoiseGeneratorV2.
     % Post-smoothed standard deviation matches the requested value.
     %
-    % Photon flux (photons/cm2/s) is computed from the calibration data and
+    % Background intensity (photons/cm2/s) is computed from the calibration data and
     % recorded as epoch parameters along with the noise seed for reproducibility.
 
     properties
@@ -42,7 +42,7 @@ classdef CfPatchLedNoise < fortenbachlab.protocols.FortenbachLabProtocol
     end
 
     properties (Dependent)
-        photonFluxBackground            % Photon flux at lightMean (photons/cm2/s). Accepts scientific notation.
+        backgroundIntensity            % Background intensity (photons/cm2/s). Accepts scientific notation.
     end
 
     properties (Hidden)
@@ -77,9 +77,9 @@ classdef CfPatchLedNoise < fortenbachlab.protocols.FortenbachLabProtocol
                     {0, 0.5, 1.0, 2.0, 3.0, 4.0});
             end
 
-            % Treat photon flux as an editable string so scientific
+            % Treat background intensity as an editable string so scientific
             % notation input (e.g. "1.5e15") is accepted and displayed.
-            if strcmp(name, 'photonFluxBackground')
+            if strcmp(name, 'backgroundIntensity')
                 d.type = symphonyui.core.PropertyType('char', 'row');
             end
         end
@@ -243,7 +243,7 @@ classdef CfPatchLedNoise < fortenbachlab.protocols.FortenbachLabProtocol
             end
             epoch.addResponse(obj.rig.getDevice(obj.amp));
 
-            % Record photon flux and NDF to epoch metadata.
+            % Record background intensity and NDF to epoch metadata.
             epoch.addParameter('ndf', obj.ndf);
             epoch.addParameter('photonFluxBackground', obj.getPhotonFlux(obj.lightMean, obj.ndf));
 
@@ -302,7 +302,7 @@ classdef CfPatchLedNoise < fortenbachlab.protocols.FortenbachLabProtocol
             end
         end
 
-        function set.photonFluxBackground(obj, val)
+        function set.backgroundIntensity(obj, val)
             % Parse scientific notation (e.g. '1.5e15') and invert the
             % calibration to set lightMean.
             if isnumeric(val)
@@ -319,7 +319,7 @@ classdef CfPatchLedNoise < fortenbachlab.protocols.FortenbachLabProtocol
             obj.ensureCalibrationLoaded();
             if isempty(obj.ledCalibration)
                 warning('CfPatchLedNoise:NoCalibration', ...
-                    'LED calibration not loaded; cannot set photonFluxBackground.');
+                    'LED calibration not loaded; cannot set backgroundIntensity.');
                 return;
             end
             vMean = obj.ledCalibration.fluxToVoltage(targetFlux, obj.ndf);
@@ -328,7 +328,7 @@ classdef CfPatchLedNoise < fortenbachlab.protocols.FortenbachLabProtocol
             obj.lightMean = vMean;
         end
 
-        function s = get.photonFluxBackground(obj)
+        function s = get.backgroundIntensity(obj)
             try
                 f = obj.getPhotonFlux(obj.lightMean, obj.ndf);
                 if isempty(f) || ~isfinite(f) || f == 0

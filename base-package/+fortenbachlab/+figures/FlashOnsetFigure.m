@@ -91,10 +91,10 @@ classdef FlashOnsetFigure < symphonyui.core.FigureHandler
             grid(obj.axHandle, 'on');
             hold(obj.axHandle, 'on');
 
-            yl = ylim(obj.axHandle);
-            line(obj.axHandle, [0 0], yl, ...
+            line(obj.axHandle, [0 0], [0 1], ...
                 'Color', [0.6 0.6 0.6], 'LineStyle', '--', ...
-                'Tag', 'onsetLine', 'HandleVisibility', 'off');
+                'Tag', 'onsetLine', 'HandleVisibility', 'off', ...
+                'YLimInclude', 'off');
         end
 
         function handleEpoch(obj, epoch)
@@ -104,7 +104,26 @@ classdef FlashOnsetFigure < symphonyui.core.FigureHandler
                 end
 
                 response = epoch.getResponse(obj.device);
-                [quantities, ~] = response.getData();
+                [quantities, units] = response.getData();
+                % For completed epochs, use getFullData() to get ALL
+                % accumulated samples — not just the streaming ring buffer
+                % window.  Without this, getData() may return a truncated
+                % vector that is shorter than the onset window, causing the
+                % figure to silently skip plotting the response.
+                try
+                    [fullQ, fullU] = response.getFullData();
+                    if ~isempty(fullQ)
+                        quantities = fullQ;
+                        units = fullU;
+                    end
+                catch
+                end
+                quantities = double(quantities(:)');
+
+                % Auto-scale base SI units (A, V) to a human-friendly
+                % prefix (pA, nA, mV, etc.) based on data magnitude.
+                [quantities, units] = obj.siAutoScale(quantities, units);
+
                 sr = response.sampleRate.quantityInBaseUnits;
 
                 % Extract the onset window.
@@ -162,7 +181,7 @@ classdef FlashOnsetFigure < symphonyui.core.FigureHandler
                     % Update running average.
                     g = obj.groups{gIdx};
                     nMin = min(numel(g.sumY), numel(snippet));
-                    g.sumY = g.sumY(1:nMin) + snippet(1:nMin)';
+                    g.sumY = g.sumY(1:nMin) + snippet(1:nMin);
                     g.count = g.count + 1;
                     g.tMs = tMs(1:nMin);
                     meanY = g.sumY / g.count;
@@ -171,10 +190,13 @@ classdef FlashOnsetFigure < symphonyui.core.FigureHandler
                 end
 
                 xlim(obj.axHandle, [-obj.prePad, obj.postPad]);
+                ylabel(obj.axHandle, units, 'Interpreter', 'none');
 
-                % Update onset line.
+                % Update onset line to span the current y-axis range.
+                % Must use findall (not findobj) because the onset line
+                % has HandleVisibility='off'.
                 yl = ylim(obj.axHandle);
-                hLine = findobj(obj.axHandle, 'Tag', 'onsetLine');
+                hLine = findall(obj.axHandle, 'Tag', 'onsetLine');
                 if ~isempty(hLine)
                     set(hLine, 'YData', yl);
                 end
@@ -187,7 +209,7 @@ classdef FlashOnsetFigure < symphonyui.core.FigureHandler
                 if ~isempty(obj.ledDevice) && epoch.hasStimulus(obj.ledDevice)
                     stim = epoch.getStimulus(obj.ledDevice);
                     [stimData, stimUnits] = stim.getData();
-                    stimData = double(stimData);
+                    stimData = double(stimData(:)');
 
                     stimWinEnd = min(numel(stimData), winEnd);
                     if winStart <= stimWinEnd
@@ -240,10 +262,10 @@ classdef FlashOnsetFigure < symphonyui.core.FigureHandler
             obj.groups = {};
             obj.stimLines = {};
 
-            yl = ylim(obj.axHandle);
-            line(obj.axHandle, [0 0], yl, ...
+            line(obj.axHandle, [0 0], [0 1], ...
                 'Color', [0.6 0.6 0.6], 'LineStyle', '--', ...
-                'Tag', 'onsetLine', 'HandleVisibility', 'off');
+                'Tag', 'onsetLine', 'HandleVisibility', 'off', ...
+                'YLimInclude', 'off');
         end
 
     end
@@ -254,6 +276,37 @@ classdef FlashOnsetFigure < symphonyui.core.FigureHandler
                 s = word;
             else
                 s = [word 's'];
+            end
+        end
+
+        function [scaledData, scaledUnits] = siAutoScale(data, units)
+            %SIAUTOSCALE  Pick an SI prefix so axis tick labels stay readable.
+            %   getData() returns numeric values in BASE SI units but may
+            %   label them with a prefixed string (e.g. 'pA').  Strip any
+            %   existing prefix, then choose the right one for the magnitude.
+            scaledData = data;
+            scaledUnits = units;
+            if isempty(data), return; end
+            peak = max(abs(data(:)));
+            if peak == 0 || ~isfinite(peak), return; end
+            if isempty(units), units = ''; end
+            siPrefixes = {'p','n',char(181),'u','m','k','M','G','T'};
+            baseUnit = units;
+            if numel(units) >= 2 && any(strcmp(units(1), siPrefixes))
+                baseUnit = units(2:end);
+            end
+            if peak >= 0.1 && peak < 1e4
+                scaledData = data; scaledUnits = baseUnit; return;
+            end
+            ex = floor(log10(peak));
+            if ex <= -10
+                scaledData = data * 1e12; scaledUnits = ['p' baseUnit];
+            elseif ex <= -7
+                scaledData = data * 1e9;  scaledUnits = ['n' baseUnit];
+            elseif ex <= -4
+                scaledData = data * 1e6;  scaledUnits = [char(181) baseUnit];
+            elseif ex <= -1
+                scaledData = data * 1e3;  scaledUnits = ['m' baseUnit];
             end
         end
     end

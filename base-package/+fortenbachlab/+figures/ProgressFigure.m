@@ -10,7 +10,9 @@ classdef ProgressFigure < symphonyui.core.FigureHandler
         averageEpochDuration
         averageIntervalDuration
         statusText
-        progressBar
+        barBackground       % Light gray panel (progress bar track)
+        barFill              % Blue panel (progress bar fill)
+        barWidth             % Full width of the progress bar in pixels
         timeText
         flashText           % Shows voltage / NDF / intensity for flash protocols
         flashVoltages       % Voltage for each pulse in the family (numeric array)
@@ -42,52 +44,68 @@ classdef ProgressFigure < symphonyui.core.FigureHandler
             obj.updateProgress();
             obj.updateFlashInfo();
         end
-        
+
         function createUi(obj)
-            import appbox.*;
-            
-            mainLayout = uix.VBox( ...
-                'Parent', obj.figureHandle, ...
-                'Padding', 11);
-            
-            uix.Empty('Parent', mainLayout);
-            
-            progressLayout = uix.VBox( ...
-                'Parent', mainLayout, ...
-                'Spacing', 5);
-            obj.statusText = Label( ...
-                'Parent', progressLayout, ...
-                'String', '', ...
-                'HorizontalAlignment', 'left');
-            obj.progressBar = javacomponent(javax.swing.JProgressBar(), [], progressLayout);
-            obj.progressBar.setMaximum(obj.totalNumEpochs);
-            obj.timeText = Label( ...
-                'Parent', progressLayout, ...
-                'String', '', ...
-                'HorizontalAlignment', 'left');
-            obj.flashText = Label( ...
-                'Parent', progressLayout, ...
-                'String', '', ...
-                'HorizontalAlignment', 'left');
-            set(progressLayout, 'Heights', [23 20 23 23]);
+            fig = obj.figureHandle;
+            set(fig, 'Name', 'Progress');
+            set(fig, 'Toolbar', 'none');
 
-            uix.Empty('Parent', mainLayout);
-
-            set(mainLayout, 'Heights', [-1 23+5+20+5+23+5+23 -1]);
-            
-            set(obj.figureHandle, 'Name', 'Progress');
-            set(obj.figureHandle, 'Toolbar', 'none');
-            
-            if isempty(obj.settings.figurePosition)
-                p = get(obj.figureHandle, 'Position');
-                set(obj.figureHandle, 'Position', [p(1) p(2) p(3) 155]);
+            try
+                if isempty(obj.settings.figurePosition)
+                    p = get(fig, 'Position');
+                    set(fig, 'Position', [p(1) p(2) p(3) 155]);
+                end
+            catch
+                p = get(fig, 'Position');
+                set(fig, 'Position', [p(1) p(2) p(3) 155]);
             end
+
+            p = get(fig, 'Position');
+            figW = p(3);
+            pad = 11;
+            w = figW - 2 * pad;
+            obj.barWidth = w;
+
+            % Status text: "3 of 10 epochs have completed"
+            obj.statusText = uicontrol(fig, 'Style', 'text', ...
+                'String', '', ...
+                'HorizontalAlignment', 'left', ...
+                'Units', 'pixels', ...
+                'Position', [pad 110 w 20]);
+
+            % Progress bar: background track (light gray)
+            obj.barBackground = uicontrol(fig, 'Style', 'text', ...
+                'String', '', ...
+                'Units', 'pixels', ...
+                'Position', [pad 87 w 18], ...
+                'BackgroundColor', [0.85 0.85 0.85]);
+
+            % Progress bar: fill (blue), starts at zero width
+            obj.barFill = uicontrol(fig, 'Style', 'text', ...
+                'String', '', ...
+                'Units', 'pixels', ...
+                'Position', [pad 87 1 18], ...
+                'BackgroundColor', [0.3 0.6 1.0]);
+
+            % Time remaining estimate
+            obj.timeText = uicontrol(fig, 'Style', 'text', ...
+                'String', '', ...
+                'HorizontalAlignment', 'left', ...
+                'Units', 'pixels', ...
+                'Position', [pad 60 w 20]);
+
+            % Flash info: voltage / NDF / intensity
+            obj.flashText = uicontrol(fig, 'Style', 'text', ...
+                'String', '', ...
+                'HorizontalAlignment', 'left', ...
+                'Units', 'pixels', ...
+                'Position', [pad 35 w 20]);
         end
-        
+
         function handleEpochOrInterval(obj, epochOrInterval)
             if epochOrInterval.isInterval()
                 obj.numIntervalsCompleted = obj.numIntervalsCompleted + 1;
-                
+
                 interval = epochOrInterval;
                 if isempty(obj.averageIntervalDuration)
                     obj.averageIntervalDuration = interval.duration;
@@ -106,9 +124,10 @@ classdef ProgressFigure < symphonyui.core.FigureHandler
 
                 obj.updateProgress();
                 obj.updateFlashInfo();
+                drawnow;
             end
         end
-        
+
         function clear(obj)
             obj.numEpochsCompleted = 0;
             obj.numIntervalsCompleted = 0;
@@ -156,12 +175,16 @@ classdef ProgressFigure < symphonyui.core.FigureHandler
 
             set(obj.flashText, 'String', info);
         end
-        
+
         function updateProgress(obj)
             set(obj.statusText, 'String', [num2str(obj.numEpochsCompleted) ' of ' num2str(obj.totalNumEpochs) ' epochs have completed']);
-            
-            obj.progressBar.setValue(obj.numEpochsCompleted);
-            
+
+            % Update progress bar fill width
+            frac = obj.numEpochsCompleted / max(obj.totalNumEpochs, 1);
+            fillW = max(round(frac * obj.barWidth), 1);
+            pos = get(obj.barFill, 'Position');
+            set(obj.barFill, 'Position', [pos(1) pos(2) fillW pos(4)]);
+
             timeLeft = '';
             if ~isempty(obj.averageEpochDuration) && ~isempty(obj.averageIntervalDuration)
                 n = obj.totalNumEpochs - obj.numEpochsCompleted;
@@ -180,7 +203,7 @@ classdef ProgressFigure < symphonyui.core.FigureHandler
             end
             set(obj.timeText, 'String', sprintf('Estimated time left: %s', timeLeft));
         end
-        
+
     end
-    
+
 end

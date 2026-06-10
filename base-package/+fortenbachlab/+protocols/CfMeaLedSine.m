@@ -8,8 +8,8 @@ classdef CfMeaLedSine < fortenbachlab.protocols.FortenbachLabProtocol
         preTime = 50                    % Leading duration (ms)
         stimTime = 5000                 % Stimulus duration (ms)
         tailTime = 5000                 % Trailing duration (ms)
-        lightMean = 5                   % LED mean voltage (V [0-10])
-        lightAmplitude = 5              % LED sine amplitude (voltage deviation from mean)
+        lightMean = 5                   % Background amplitude: LED DC voltage (V [0-10])
+        lightAmplitude = 5              % Flash amplitude: sine voltage deviation from mean
         frequency = 1                   % Stimulus frequency (Hz)
         phase = 0                       % Sine wave phase offset (radians)
         ndf = 0.0                       % ND filter setting (applied to filter wheel at run start)
@@ -32,6 +32,7 @@ classdef CfMeaLedSine < fortenbachlab.protocols.FortenbachLabProtocol
     properties (Hidden)
         ledType
         ampType
+        ndfType = symphonyui.core.PropertyType('denserealdouble', 'scalar', {0, 0.5, 1.0, 2.0, 3.0, 4.0})
     end
 
     methods
@@ -61,6 +62,14 @@ classdef CfMeaLedSine < fortenbachlab.protocols.FortenbachLabProtocol
 
             if strncmp(name, 'amp2', 4) && numel(obj.rig.getDeviceNames('Amp')) < 2
                 d.isHidden = true;
+            end
+
+            % Consistent display names for LED properties.
+            if strcmp(name, 'lightAmplitude')
+                d.displayName = 'Flash Amplitude';
+            end
+            if strcmp(name, 'lightMean')
+                d.displayName = 'Background Amplitude';
             end
 
             % Constrain the ndf field to valid filter wheel values.

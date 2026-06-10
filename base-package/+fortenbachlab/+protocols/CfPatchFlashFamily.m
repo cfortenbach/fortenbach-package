@@ -35,9 +35,9 @@ classdef CfPatchFlashFamily < fortenbachlab.protocols.FortenbachLabProtocol
         preTime = 50                    % Pulse leading duration (ms)
         stimTime = 10                   % Pulse duration (ms)
         tailTime = 3000                 % Pulse trailing duration (ms)
-        firstLightAmplitude = 0.02      % First pulse amplitude (V [0-10])
+        firstLightAmplitude = 0.02      % First flash amplitude (V [0-10])
         pulsesInFamily = uint16(10)     % Number of flash intensities
-        lightMean = 0                   % Pulse and LED background mean (V)
+        lightMean = 0                   % Background amplitude: LED DC voltage (V)
         ndf = 0.0                       % ND filter setting (when autoNDF is off)
         autoNDF = true                  % Automatically switch NDF when voltage exceeds 10 V
         startingNDF = 4.0               % Starting NDF value (used when autoNDF is true)
@@ -91,6 +91,14 @@ classdef CfPatchFlashFamily < fortenbachlab.protocols.FortenbachLabProtocol
 
             if strncmp(name, 'amp2', 4) && numel(obj.rig.getDeviceNames('Amp')) < 2
                 d.isHidden = true;
+            end
+
+            % Consistent display names for LED properties.
+            if strcmp(name, 'firstLightAmplitude')
+                d.displayName = 'First Flash Amplitude';
+            end
+            if strcmp(name, 'lightMean')
+                d.displayName = 'Background Amplitude';
             end
 
             % When autoNDF is on: hide firstLightAmplitude, startingNDF, ndf

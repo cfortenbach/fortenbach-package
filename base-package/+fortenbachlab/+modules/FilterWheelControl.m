@@ -12,70 +12,79 @@ classdef FilterWheelControl < symphonyui.ui.Module
         log
         settings
         filterWheel
-        ndfSettingPopupMenu
-        maxFluxText          % Display: max flux at NDF 0
-        currentFluxText      % Display: max flux at current NDF
-        currentNdfText       % Display: current NDF value
-        calibrationVoltage   % Voltage column from calibration file
-        calibrationFlux      % Photons/cm2/s column from calibration file
+        ndfPopup                % Popup menu for NDF selection
+        ndfValues               % Numeric NDF values corresponding to popup items
+        maxFluxText             % Display: max flux at NDF 0
+        currentFluxText         % Display: max flux at current NDF
+        calibrationVoltage      % Voltage column from calibration file
+        calibrationFlux         % Photons/cm2/s column from calibration file
     end
 
     methods
 
         function obj = FilterWheelControl()
-            obj.log = log4m.LogManager.getLogger(class(obj));
+            try
+                obj.log = log4m.LogManager.getLogger(class(obj));
+            catch
+                obj.log = [];
+            end
             obj.settings = fortenbachlab.modules.settings.FilterWheelControlSettingsCF();
         end
 
         function createUi(obj, figureHandle)
-            import appbox.*;
+            % Center the window on screen.
+            screenSize = get(0, 'ScreenSize');
+            w = 320; h = 120;
+            x = round((screenSize(3) - w) / 2);
+            y = round((screenSize(4) - h) / 2);
 
             set(figureHandle, ...
                 'Name', 'Filter Wheel & Calibration', ...
-                'Position', screenCenter(280, 120));
+                'Position', [x y w h]);
 
-            mainLayout = uix.HBox( ...
-                'Parent', figureHandle, ...
-                'Padding', 11, ...
-                'Spacing', 7);
+            pad = 11;
+            labelW = 130;
+            ctrlW = w - 2*pad - labelW - 7;
 
-            filterWheelLayout = uix.Grid( ...
-                'Parent', mainLayout, ...
-                'Spacing', 7);
-
-            % Row labels
-            Label( ...
-                'Parent', filterWheelLayout, ...
-                'String', 'NDF:');
-            Label( ...
-                'Parent', filterWheelLayout, ...
-                'String', 'Max flux (NDF 0):');
-            Label( ...
-                'Parent', filterWheelLayout, ...
-                'String', 'Max flux (current NDF):');
-
-            % Row controls/values
-            obj.ndfSettingPopupMenu = MappedPopupMenu( ...
-                'Parent', filterWheelLayout, ...
-                'String', {' '}, ...
+            % Row 1: NDF selector
+            uicontrol(figureHandle, 'Style', 'text', ...
+                'String', 'NDF:', ...
                 'HorizontalAlignment', 'left', ...
+                'Units', 'pixels', ...
+                'Position', [pad 80 labelW 20]);
+
+            obj.ndfPopup = uicontrol(figureHandle, 'Style', 'popupmenu', ...
+                'String', {'0.0', '0.5', '1.0', '2.0', '3.0', '4.0'}, ...
+                'Units', 'pixels', ...
+                'Position', [pad + labelW + 7, 80, ctrlW, 22], ...
                 'Callback', @obj.onSelectedNdfSetting);
+            obj.ndfValues = [0.0, 0.5, 1.0, 2.0, 3.0, 4.0];
 
-            obj.maxFluxText = uicontrol( ...
-                'Parent', filterWheelLayout, ...
-                'Style', 'text', ...
+            % Row 2: Max flux at NDF 0
+            uicontrol(figureHandle, 'Style', 'text', ...
+                'String', 'Max flux (NDF 0):', ...
                 'HorizontalAlignment', 'left', ...
-                'String', '-- photons/cm2/s');
+                'Units', 'pixels', ...
+                'Position', [pad 53 labelW 20]);
 
-            obj.currentFluxText = uicontrol( ...
-                'Parent', filterWheelLayout, ...
-                'Style', 'text', ...
+            obj.maxFluxText = uicontrol(figureHandle, 'Style', 'text', ...
+                'String', '-- photons/cm2/s', ...
                 'HorizontalAlignment', 'left', ...
-                'String', '-- photons/cm2/s');
+                'Units', 'pixels', ...
+                'Position', [pad + labelW + 7, 53, ctrlW, 20]);
 
-            set(filterWheelLayout, ...
-                'Widths', [120 -1], ...
-                'Heights', 23 * ones(1, 3));
+            % Row 3: Max flux at current NDF
+            uicontrol(figureHandle, 'Style', 'text', ...
+                'String', 'Max flux (current NDF):', ...
+                'HorizontalAlignment', 'left', ...
+                'Units', 'pixels', ...
+                'Position', [pad 26 labelW 20]);
+
+            obj.currentFluxText = uicontrol(figureHandle, 'Style', 'text', ...
+                'String', '-- photons/cm2/s', ...
+                'HorizontalAlignment', 'left', ...
+                'Units', 'pixels', ...
+                'Position', [pad + labelW + 7, 26, ctrlW, 20]);
         end
 
     end
@@ -93,57 +102,35 @@ classdef FilterWheelControl < symphonyui.ui.Module
             % Load calibration data.
             obj.loadCalibration();
 
-            % Populate NDF dropdown.
-            obj.populateNdfSettingList();
-
-            % Log what the device currently thinks NDF is (for debugging
-            % why the UI might default to something other than 4.0).
+            % Log what the device currently thinks NDF is.
             try
                 ndfBefore = obj.filterWheel.getConfigurationSetting('NDF');
-                obj.log.info(sprintf('FilterWheel NDF setting at module load: %g', ndfBefore));
+                obj.logInfo(sprintf('FilterWheel NDF setting at module load: %g', ndfBefore));
             catch
-                ndfBefore = [];
             end
 
-            % Force NDF to 0.0 on startup regardless of any persisted
-            % or previous value.
+            % Force NDF to 0.0 on startup.
             targetNDF = 0.0;
             try
                 obj.filterWheel.setNDF(targetNDF);
             catch e
-                obj.log.warn(['Filter wheel setNDF failed: ' e.message]);
+                obj.logWarn(['Filter wheel setNDF failed: ' e.message]);
             end
-            % Ensure the config setting matches even if the serial move
-            % raised (so protocols see the intended NDF).
             try
                 obj.filterWheel.setReadOnlyConfigurationSetting('NDF', targetNDF);
             catch
             end
 
-            % Set the popup to match. MappedPopupMenu matches the value by
-            % equality with one of the entries in 'Values' (not by index).
-            try
-                set(obj.ndfSettingPopupMenu, 'Value', targetNDF);
-            catch e
-                obj.log.warn(['Could not set NDF popup to ' num2str(targetNDF) ': ' e.message]);
-            end
+            % Set the popup to match (index 1 = NDF 0.0).
+            set(obj.ndfPopup, 'Value', 1);
 
-            % Verify what the popup actually landed on and log it.
-            try
-                actualVal = get(obj.ndfSettingPopupMenu, 'Value');
-                if iscell(actualVal), actualVal = actualVal{1}; end
-                obj.log.info(sprintf('NDF popup initialized to: %g', actualVal));
-            catch
-                actualVal = targetNDF;
-            end
-
-            % Update the flux display using the popup's actual value.
-            obj.updateFluxDisplay(actualVal);
+            % Update the flux display.
+            obj.updateFluxDisplay(targetNDF);
 
             try
                 obj.loadSettings();
             catch x
-                obj.log.debug(['Failed to load settings: ' x.message], x);
+                obj.logDebug(['Failed to load settings: ' x.message]);
             end
         end
 
@@ -151,7 +138,7 @@ classdef FilterWheelControl < symphonyui.ui.Module
             try
                 obj.saveSettings();
             catch x
-                obj.log.debug(['Failed to save settings: ' x.message], x);
+                obj.logDebug(['Failed to save settings: ' x.message]);
             end
         end
 
@@ -159,21 +146,15 @@ classdef FilterWheelControl < symphonyui.ui.Module
 
     methods (Access = private)
 
-        function populateNdfSettingList(obj)
-            ndfNums = {0.0, 0.5, 1.0, 2.0, 3.0, 4.0};
-            ndfs = {'0.0', '0.5', '1.0', '2.0', '3.0', '4.0'};
-
-            set(obj.ndfSettingPopupMenu, 'String', ndfs);
-            set(obj.ndfSettingPopupMenu, 'Values', ndfNums);
+        function ndf = getSelectedNdf(obj)
+            idx = get(obj.ndfPopup, 'Value');
+            ndf = obj.ndfValues(idx);
         end
 
         function onSelectedNdfSetting(obj, ~, ~)
-            ndf = get(obj.ndfSettingPopupMenu, 'Value');
-            if iscell(ndf)
-                ndf = ndf{1};
-            end
-            % Check if this is actually a change (so we only pay the
-            % settle-time cost when the wheel needs to move).
+            ndf = obj.getSelectedNdf();
+
+            % Check if this is actually a change.
             try
                 previousNDF = obj.filterWheel.getConfigurationSetting('NDF');
             catch
@@ -182,32 +163,24 @@ classdef FilterWheelControl < symphonyui.ui.Module
             try
                 obj.filterWheel.setNDF(ndf);
             catch e
-                % setNDF may fail to move the wheel but we still want
-                % the config setting updated so the UI and protocols
-                % reflect the intended NDF.
                 try
                     obj.filterWheel.setReadOnlyConfigurationSetting('NDF', ndf);
                 catch
                 end
-                obj.log.warn(['Filter wheel command failed: ' e.message]);
+                obj.logWarn(['Filter wheel command failed: ' e.message]);
             end
-            % Force the config setting to match the selected NDF regardless
-            % of whether the serial command succeeded, so protocols and the
-            % flux display always reflect the chosen value.
             try
                 obj.filterWheel.setReadOnlyConfigurationSetting('NDF', ndf);
             catch
             end
             obj.updateFluxDisplay(ndf);
-            % Wait for the filter wheel to physically settle when NDF
-            % actually changed.
+            % Wait for the filter wheel to physically settle.
             if ~isempty(previousNDF) && ~isequal(previousNDF, ndf)
                 pause(4);
             end
         end
 
         function loadCalibration(obj)
-            % Load the LED calibration file via Package resource loader.
             calibFile = '';
 
             try
@@ -221,14 +194,12 @@ classdef FilterWheelControl < symphonyui.ui.Module
             end
 
             if isempty(calibFile)
-                obj.log.warn('LED calibration file not found. Using default values.');
-                % Default calibration data (455 nm LED, NDF 0, 100 mA/V)
+                obj.logWarn('LED calibration file not found. Using default values.');
                 obj.calibrationVoltage = [0; 0.1; 0.5; 1.0; 3.0; 5.0; 8.0; 10.0];
                 obj.calibrationFlux    = [0; 9.05e14; 4.68e15; 9.18e15; 2.55e16; 4.01e16; 5.99e16; 7.23e16];
                 return;
             end
 
-            % Read the calibration file line-by-line, skipping comment lines (%).
             fid = fopen(calibFile, 'r');
             voltages = [];
             fluxes = [];
@@ -250,37 +221,18 @@ classdef FilterWheelControl < symphonyui.ui.Module
         end
 
         function flux = getFluxAtVoltage(obj, voltage, ndf)
-            % Interpolate the calibration curve to get photon flux at a
-            % given voltage, then apply NDF attenuation.
-            %
-            % flux = getFluxAtVoltage(obj, voltage, ndf)
-            %   voltage - LED driver voltage (0-10 V)
-            %   ndf     - ND filter value (0, 0.5, 1.0, 2.0, 3.0, 4.0)
-            %
-            % Returns photons/cm2/s
-
             if voltage <= 0
                 flux = 0;
                 return;
             end
-
-            % Clamp voltage to calibration range.
             voltage = min(voltage, max(obj.calibrationVoltage));
-
-            % Interpolate flux at NDF 0.
             fluxNdf0 = interp1(obj.calibrationVoltage, obj.calibrationFlux, voltage, 'pchip');
-
-            % Apply NDF attenuation: 10^(-NDF).
             flux = fluxNdf0 / (10^ndf);
         end
 
         function updateFluxDisplay(obj, ndf)
-            % Update the flux display text fields.
             if nargin < 2 || isempty(ndf)
-                ndf = get(obj.ndfSettingPopupMenu, 'Value');
-            end
-            if iscell(ndf)
-                ndf = ndf{1};
+                ndf = obj.getSelectedNdf();
             end
             if isempty(ndf) || ~isnumeric(ndf)
                 ndf = 0;
@@ -290,7 +242,6 @@ classdef FilterWheelControl < symphonyui.ui.Module
                 return;
             end
 
-            % Max flux = flux at 10V.
             maxFluxNdf0 = obj.calibrationFlux(end);
             maxFluxCurrentNdf = maxFluxNdf0 / (10^ndf);
 
@@ -314,11 +265,21 @@ classdef FilterWheelControl < symphonyui.ui.Module
             obj.settings.save();
         end
 
+        % Logging helpers (safe if log4m is unavailable)
+        function logInfo(obj, msg)
+            if ~isempty(obj.log), obj.log.info(msg); end
+        end
+        function logWarn(obj, msg)
+            if ~isempty(obj.log), obj.log.warn(msg); end
+        end
+        function logDebug(obj, msg)
+            if ~isempty(obj.log), obj.log.debug(msg); end
+        end
+
     end
 
     methods (Static)
         function str = formatScientific(num)
-            % Format a number in scientific notation like "7.23e+16".
             if num == 0
                 str = '0';
             else

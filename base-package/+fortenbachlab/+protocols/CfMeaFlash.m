@@ -7,9 +7,9 @@ classdef CfMeaFlash < fortenbachlab.protocols.FortenbachLabProtocol
         preTime = 50                    % Pulse leading duration (ms)
         stimTime = 5000                 % Pulse duration (ms)
         tailTime = 5000                 % Pulse trailing duration (ms)
-        lightAmplitude = 1              % Pulse amplitude (V [0-10])
+        lightAmplitude = 1              % Flash amplitude (V [0-10])
         pulseAmplitude = 1              % Voltage Output (Auto-calculated DO NOT ADJUST to avoid MEA overload)
-        lightMean = 0                   % Pulse and LED background mean (V or norm. [0-1] depending on LED units)
+        lightMean = 0                   % Background amplitude: LED DC voltage (V or norm. [0-1])
         ndf = 0.0                       % ND filter setting (applied to filter wheel at run start)
     end
 
@@ -30,6 +30,7 @@ classdef CfMeaFlash < fortenbachlab.protocols.FortenbachLabProtocol
     properties (Hidden)
         ledType
         ampType
+        ndfType = symphonyui.core.PropertyType('denserealdouble', 'scalar', {0, 0.5, 1.0, 2.0, 3.0, 4.0})
     end
     
     methods
@@ -51,6 +52,14 @@ classdef CfMeaFlash < fortenbachlab.protocols.FortenbachLabProtocol
 
             if strncmp(name, 'amp2', 4) && numel(obj.rig.getDeviceNames('Amp')) < 2
                 d.isHidden = true;
+            end
+
+            % Consistent display names for LED properties.
+            if strcmp(name, 'lightAmplitude')
+                d.displayName = 'Flash Amplitude';
+            end
+            if strcmp(name, 'lightMean')
+                d.displayName = 'Background Amplitude';
             end
 
             % Constrain the ndf field to valid filter wheel values.

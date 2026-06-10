@@ -119,6 +119,18 @@ classdef MeanResponseFigure < symphonyui.core.FigureHandler
 
             response = epoch.getResponse(obj.device);
             [quantities, units] = response.getData();
+            try
+                [fullQ, fullU] = response.getFullData();
+                if ~isempty(fullQ)
+                    quantities = fullQ;
+                    units = fullU;
+                end
+            catch
+            end
+
+            % Auto-scale bare SI base units (A → pA, V → mV, etc.)
+            [quantities, units] = fortenbachlab.figures.MeanResponseFigure.siAutoScale(quantities, units);
+
             if numel(quantities) > 0
                 sampleRate = response.sampleRate.quantityInBaseUnits;
                 x = (1:numel(quantities)) / sampleRate;
@@ -136,23 +148,25 @@ classdef MeanResponseFigure < symphonyui.core.FigureHandler
                 y = [];
             end
 
-            p = epoch.parameters;
-            if isempty(obj.groupBy) && isnumeric(obj.groupBy)
-                parameters = p;
+            if isempty(obj.groupBy)
+                parameters = containers.Map();
             else
+                p = epoch.parameters;
                 parameters = containers.Map();
                 for i = 1:length(obj.groupBy)
                     key = obj.groupBy{i};
-                    parameters(key) = p(key);
+                    if p.isKey(key)
+                        parameters(key) = p(key);
+                    end
                 end
             end
 
-            if isempty(parameters)
-                t = 'All epochs grouped together';
+            if parameters.Count == 0
+                obj.setTitle([obj.device.name ' Mean Response']);
             else
-                t = ['Grouped by ' strjoin(parameters.keys, ', ')];
+                obj.setTitle([obj.device.name ' Mean Response (Grouped by ' ...
+                    strjoin(parameters.keys, ', ') ')']);
             end
-            obj.setTitle([obj.device.name ' Mean Response (' t ')']);
 
             % Ensure sweep lines go on the left axis.
             if ~isempty(obj.ledDevice)
@@ -284,6 +298,39 @@ classdef MeanResponseFigure < symphonyui.core.FigureHandler
             sweeps = stored;
         end
 
+    end
+
+    methods (Static, Access = private)
+        function [scaledData, scaledUnits] = siAutoScale(data, units)
+            %SIAUTOSCALE  Pick an SI prefix so axis tick labels stay readable.
+            %   getData() returns numeric values in BASE SI units but may
+            %   label them with a prefixed string (e.g. 'pA').  Strip any
+            %   existing prefix, then choose the right one for the magnitude.
+            scaledData = data;
+            scaledUnits = units;
+            if isempty(data), return; end
+            peak = max(abs(data(:)));
+            if peak == 0 || ~isfinite(peak), return; end
+            if isempty(units), units = ''; end
+            siPrefixes = {'p','n',char(181),'u','m','k','M','G','T'};
+            baseUnit = units;
+            if numel(units) >= 2 && any(strcmp(units(1), siPrefixes))
+                baseUnit = units(2:end);
+            end
+            if peak >= 0.1 && peak < 1e4
+                scaledData = data; scaledUnits = baseUnit; return;
+            end
+            ex = floor(log10(peak));
+            if ex <= -10
+                scaledData = data * 1e12; scaledUnits = ['p' baseUnit];
+            elseif ex <= -7
+                scaledData = data * 1e9;  scaledUnits = ['n' baseUnit];
+            elseif ex <= -4
+                scaledData = data * 1e6;  scaledUnits = [char(181) baseUnit];
+            elseif ex <= -1
+                scaledData = data * 1e3;  scaledUnits = ['m' baseUnit];
+            end
+        end
     end
 
 end

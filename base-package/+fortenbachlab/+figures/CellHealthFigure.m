@@ -71,6 +71,11 @@ classdef CellHealthFigure < symphonyui.core.FigureHandler
 
                 response = epoch.getResponse(obj.device);
                 [quantities, ~] = response.getData();
+                try
+                    [fullQ, ~] = response.getFullData();
+                    if ~isempty(fullQ), quantities = fullQ; end
+                catch
+                end
                 sr = response.sampleRate.quantityInBaseUnits;
 
                 % Detect clamp mode from the device background units.
@@ -95,41 +100,48 @@ classdef CellHealthFigure < symphonyui.core.FigureHandler
                     return;
                 end
 
-                % Test pulse amplitude (must match FortenbachLabProtocol).
-                if strcmp(obj.clampMode, 'Vclamp')
-                    testPulseAmp = 10;  % mV
-                else
-                    testPulseAmp = -50; % pA
-                end
-
-                % Baseline (before test pulse).
+                % Baseline (before test pulse) — raw values are in base SI
+                % (Amps for Vclamp response, Volts for Iclamp response).
                 baseline = mean(quantities(1:baselinePts));
 
-                % Steady-state deflection (last 80% of pulse — with
-                % amplifier transient compensation the response settles
-                % within the first sample, so we can safely average
-                % nearly the entire pulse).
+                % Steady-state deflection (last 80% of pulse).
                 ssStart = pulseStart + round(pulsePts * 0.2);
                 ssDeflection = mean(quantities(ssStart:pulseEnd)) - baseline;
 
-                % Compute Rinput.
-                % Vclamp: Rinput = Vstep (mV) / Iss (pA) * 1000 -> MOhm
-                % Iclamp: Rinput = Vss (mV)  / Istep (pA) * 1000 -> MOhm
+                % Compute Rinput in base SI, then convert to MOhm.
+                % getData() returns base SI values regardless of units label.
+                %   Vclamp: R = Vstep(V) / Ideflection(A)  → Ohm
+                %   Iclamp: R = Vdeflection(V) / Istep(A)  → Ohm
+                % testPulseAmp: 10 mV (Vclamp) or -50 pA (Iclamp).
                 if strcmp(obj.clampMode, 'Vclamp')
+                    testPulseAmp_SI = 10 * 1e-3;   % 10 mV → V
                     if abs(ssDeflection) > 0
-                        rinputMOhm = abs(testPulseAmp / ssDeflection) * 1000;
+                        R_ohm = testPulseAmp_SI / ssDeflection;
+                        rinputMOhm = abs(R_ohm) / 1e6;
                     else
                         rinputMOhm = NaN;
                     end
                 else
-                    if abs(testPulseAmp) > 0
-                        rinputMOhm = abs(ssDeflection / testPulseAmp) * 1000;
+                    testPulseAmp_SI = -50 * 1e-12;  % -50 pA → A
+                    if abs(testPulseAmp_SI) > 0
+                        R_ohm = ssDeflection / testPulseAmp_SI;
+                        rinputMOhm = abs(R_ohm) / 1e6;
                     else
                         rinputMOhm = NaN;
                     end
                 end
 
-                hold_val = baseline;
+                % Scale baseline for display (A → pA, V → mV, etc.).
+                [hold_val, holdUnits] = obj.siAutoScale(baseline, '');
+                if strcmp(obj.clampMode, 'Vclamp')
+                    holdLabel = 'I_{hold}';
+                    holdTitle = 'Holding Current';
+                    if isempty(holdUnits), holdUnits = 'A'; end
+                else
+                    holdLabel = 'V_{hold}';
+                    holdTitle = 'Holding Voltage';
+                    if isempty(holdUnits), holdUnits = 'V'; end
+                end
 
                 obj.epochCount = obj.epochCount + 1;
                 obj.rinputData(end+1) = rinputMOhm;
@@ -141,9 +153,10 @@ classdef CellHealthFigure < symphonyui.core.FigureHandler
                 cla(obj.rinputAx);
                 plot(obj.rinputAx, epochs, obj.rinputData, 'o-', 'Color', [0 0.45 0.74], ...
                     'MarkerFaceColor', [0 0.45 0.74], 'MarkerSize', 4);
-                ylabel(obj.rinputAx, 'R_{input} (M\Omega)');
+                ohm = char(937);
+                ylabel(obj.rinputAx, ['R_{input} (M' ohm ')']);
                 if isfinite(rinputMOhm)
-                    title(obj.rinputAx, sprintf('Input Resistance  (%.1f M\\Omega)', rinputMOhm));
+                    title(obj.rinputAx, sprintf('Input Resistance  (%.1f M%s)', rinputMOhm, ohm));
                 else
                     title(obj.rinputAx, 'Input Resistance');
                 end
@@ -154,20 +167,11 @@ classdef CellHealthFigure < symphonyui.core.FigureHandler
                 plot(obj.holdAx, epochs, obj.holdData, 'o-', 'Color', [0.47 0.67 0.19], ...
                     'MarkerFaceColor', [0.47 0.67 0.19], 'MarkerSize', 4);
                 xlabel(obj.holdAx, 'Epoch');
-                if strcmp(obj.clampMode, 'Iclamp')
-                    ylabel(obj.holdAx, 'V_{hold} (mV)');
-                    if isfinite(hold_val)
-                        title(obj.holdAx, sprintf('Holding Voltage  (%.1f mV)', hold_val));
-                    else
-                        title(obj.holdAx, 'Holding Voltage');
-                    end
+                ylabel(obj.holdAx, [holdLabel ' (' holdUnits ')']);
+                if isfinite(hold_val)
+                    title(obj.holdAx, sprintf('%s  (%.1f %s)', holdTitle, hold_val, holdUnits));
                 else
-                    ylabel(obj.holdAx, 'I_{hold} (pA)');
-                    if isfinite(hold_val)
-                        title(obj.holdAx, sprintf('Holding Current  (%.1f pA)', hold_val));
-                    else
-                        title(obj.holdAx, 'Holding Current');
-                    end
+                    title(obj.holdAx, holdTitle);
                 end
                 grid(obj.holdAx, 'on');
 
@@ -186,6 +190,35 @@ classdef CellHealthFigure < symphonyui.core.FigureHandler
             cla(obj.holdAx);
         end
 
+    end
+
+    methods (Static, Access = private)
+        function [scaledData, scaledUnits] = siAutoScale(data, units)
+            scaledData = data;
+            scaledUnits = units;
+            if isempty(data), return; end
+            peak = max(abs(data(:)));
+            if peak == 0 || ~isfinite(peak), return; end
+            if isempty(units), units = ''; end
+            siPrefixes = {'p','n',char(181),'u','m','k','M','G','T'};
+            baseUnit = units;
+            if numel(units) >= 2 && any(strcmp(units(1), siPrefixes))
+                baseUnit = units(2:end);
+            end
+            if peak >= 0.1 && peak < 1e4
+                scaledData = data; scaledUnits = baseUnit; return;
+            end
+            ex = floor(log10(peak));
+            if ex <= -10
+                scaledData = data * 1e12; scaledUnits = ['p' baseUnit];
+            elseif ex <= -7
+                scaledData = data * 1e9;  scaledUnits = ['n' baseUnit];
+            elseif ex <= -4
+                scaledData = data * 1e6;  scaledUnits = [char(181) baseUnit];
+            elseif ex <= -1
+                scaledData = data * 1e3;  scaledUnits = ['m' baseUnit];
+            end
+        end
     end
 
 end

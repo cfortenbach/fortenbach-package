@@ -29,7 +29,7 @@ classdef CfPatchLedNoise < fortenbachlab.protocols.FortenbachLabProtocol
         stdvMultiples = uint16(3)       % Number of stdv levels in family
         repeatsPerStdv = uint16(5)      % Repeats at each stdv level
         useRandomSeed = false           % Use a random seed for each stdv level
-        lightMean = 5                   % Noise mean / LED background (V)
+        lightMean = 5                   % Background amplitude: LED DC voltage (V)
         ndf = 0.0                       % ND filter setting
         numberOfAverages = uint16(1)    % Number of complete families
         interpulseInterval = 0          % Duration between noise epochs (s)
@@ -69,6 +69,11 @@ classdef CfPatchLedNoise < fortenbachlab.protocols.FortenbachLabProtocol
 
             if strncmp(name, 'amp2', 4) && numel(obj.rig.getDeviceNames('Amp')) < 2
                 d.isHidden = true;
+            end
+
+            % Consistent display names for LED properties.
+            if strcmp(name, 'lightMean')
+                d.displayName = 'Background Amplitude';
             end
 
             % Constrain NDF to valid filter wheel values.

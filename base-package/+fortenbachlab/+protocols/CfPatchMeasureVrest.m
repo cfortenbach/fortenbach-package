@@ -65,40 +65,46 @@ classdef CfPatchMeasureVrest < fortenbachlab.protocols.FortenbachLabProtocol
             end
 
             % Show a figure with the recorded trace and Vrest readout.
+            % Plain pixel positioning (no uix.VBox).
             obj.vrestFigure = obj.showFigure('symphonyui.builtin.figures.CustomFigure', @obj.updateFigure);
             f = obj.vrestFigure.getFigureHandle();
             set(f, 'Name', 'Resting Membrane Potential');
 
-            layout = uix.VBox('Parent', f);
+            fPos = get(f, 'Position');
+            infoH = 106; topPad = 40;
 
-            obj.vrestFigure.userData.ax = axes('Parent', layout);
+            % Trace axes (top portion).
+            obj.vrestFigure.userData.ax = axes('Parent', f, ...
+                'Units', 'normalized', ...
+                'Position', [0.10  (infoH + 10)/fPos(4)  0.85  1 - (infoH + 10 + topPad)/fPos(4)]);
             xlabel(obj.vrestFigure.userData.ax, 'Time (ms)');
-            ylabel(obj.vrestFigure.userData.ax, 'Membrane Potential (mV)');
+            ylabel(obj.vrestFigure.userData.ax, 'mV');
             title(obj.vrestFigure.userData.ax, 'Vrest Recording');
             grid(obj.vrestFigure.userData.ax, 'on');
 
-            infoPanel = uix.VBox('Parent', layout);
-            obj.vrestFigure.userData.modeText = uicontrol( ...
-                'Parent', infoPanel, ...
+            % Info panel (bottom strip): mode, Vrest readout, instruction.
+            obj.vrestFigure.userData.modeText = uicontrol(f, ...
                 'Style', 'text', ...
+                'Units', 'pixels', ...
+                'Position', [10 78 fPos(3)-20 24], ...
                 'FontSize', 16, ...
                 'HorizontalAlignment', 'center', ...
                 'String', sprintf('Mode: %s', obj.modeAtStart));
-            obj.vrestFigure.userData.vrestText = uicontrol( ...
-                'Parent', infoPanel, ...
+            obj.vrestFigure.userData.vrestText = uicontrol(f, ...
                 'Style', 'text', ...
+                'Units', 'pixels', ...
+                'Position', [10 26 fPos(3)-20 50], ...
                 'FontSize', 36, ...
                 'HorizontalAlignment', 'center', ...
                 'String', 'Vrest = ...');
-            obj.vrestFigure.userData.instructionText = uicontrol( ...
-                'Parent', infoPanel, ...
+            obj.vrestFigure.userData.instructionText = uicontrol(f, ...
                 'Style', 'text', ...
+                'Units', 'pixels', ...
+                'Position', [10 4 fPos(3)-20 20], ...
                 'FontSize', 12, ...
                 'ForegroundColor', [0.6 0.6 0.6], ...
                 'HorizontalAlignment', 'center', ...
                 'String', 'Switch back to V-Clamp in Commander when done.');
-            set(infoPanel, 'Heights', [28 54 24]);
-            set(layout, 'Heights', [-1 106]);
 
             obj.showFigure('symphonyui.builtin.figures.ResponseFigure', obj.rig.getDevice(obj.amp));
         end
@@ -106,7 +112,13 @@ classdef CfPatchMeasureVrest < fortenbachlab.protocols.FortenbachLabProtocol
         function updateFigure(obj, figureHandler, epoch)
             try
                 responseData = epoch.getResponse(obj.rig.getDevice(obj.amp));
-                [quantities, ~] = responseData.getData();
+                [quantities, units] = responseData.getData();
+                try
+                    [fullQ, fullU] = responseData.getFullData();
+                    if ~isempty(fullQ), quantities = fullQ; units = fullU; end
+                catch
+                end
+                [quantities, units] = obj.siAutoScale(quantities, units);
                 sr = responseData.sampleRate.quantityInBaseUnits;
 
                 ax = figureHandler.userData.ax;
@@ -114,7 +126,7 @@ classdef CfPatchMeasureVrest < fortenbachlab.protocols.FortenbachLabProtocol
                 cla(ax);
                 plot(ax, tMs, quantities, 'Color', [0 0.45 0.74], 'LineWidth', 1);
                 xlabel(ax, 'Time (ms)');
-                ylabel(ax, 'Membrane Potential (mV)');
+                ylabel(ax, units, 'Interpreter', 'none');
                 grid(ax, 'on');
 
                 % Skip the first 50 ms to allow any settling, then average.
@@ -131,10 +143,10 @@ classdef CfPatchMeasureVrest < fortenbachlab.protocols.FortenbachLabProtocol
                 plot(ax, [tMs(1) tMs(end)], [vrest vrest], '--', ...
                     'Color', [0.85 0.33 0.10], 'LineWidth', 1.5);
                 hold(ax, 'off');
-                title(ax, sprintf('Vrest Recording  (%.1f mV)', vrest));
+                title(ax, sprintf('Vrest Recording  (%.1f %s)', vrest, units));
 
                 set(figureHandler.userData.vrestText, 'String', ...
-                    sprintf('V_{rest} = %.1f mV', vrest));
+                    sprintf('Vrest = %.1f %s', vrest, units));
             catch ME
                 fprintf(2, '[MeasureVrest] Figure update error: %s\n', ME.message);
             end
@@ -227,6 +239,35 @@ classdef CfPatchMeasureVrest < fortenbachlab.protocols.FortenbachLabProtocol
             end
         end
 
+    end
+
+    methods (Static, Access = private)
+        function [scaledData, scaledUnits] = siAutoScale(data, units)
+            scaledData = data;
+            scaledUnits = units;
+            if isempty(data), return; end
+            peak = max(abs(data(:)));
+            if peak == 0 || ~isfinite(peak), return; end
+            if isempty(units), units = ''; end
+            siPrefixes = {'p','n',char(181),'u','m','k','M','G','T'};
+            baseUnit = units;
+            if numel(units) >= 2 && any(strcmp(units(1), siPrefixes))
+                baseUnit = units(2:end);
+            end
+            if peak >= 0.1 && peak < 1e4
+                scaledData = data; scaledUnits = baseUnit; return;
+            end
+            ex = floor(log10(peak));
+            if ex <= -10
+                scaledData = data * 1e12; scaledUnits = ['p' baseUnit];
+            elseif ex <= -7
+                scaledData = data * 1e9;  scaledUnits = ['n' baseUnit];
+            elseif ex <= -4
+                scaledData = data * 1e6;  scaledUnits = [char(181) baseUnit];
+            elseif ex <= -1
+                scaledData = data * 1e3;  scaledUnits = ['m' baseUnit];
+            end
+        end
     end
 
 end

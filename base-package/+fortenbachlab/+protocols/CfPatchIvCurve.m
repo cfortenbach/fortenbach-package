@@ -25,7 +25,7 @@ classdef CfPatchIvCurve < fortenbachlab.protocols.FortenbachLabProtocol
         interpulseInterval = 0          % Duration between pulses (s)
         lightOn = false                 % Turn on continuous background light during run
         led                             % Output LED (used when lightOn is true)
-        lightMean = 0                   % LED background voltage (V [0-10])
+        lightMean = 0                   % Background amplitude: LED DC voltage (V [0-10])
         ndf = 0.0                       % ND filter setting (applied to filter wheel when lightOn is true)
         amp2PulseSignal = -60           % Pulse signal value for secondary amp (mV or pA depending on amp2 mode)
     end
@@ -59,6 +59,11 @@ classdef CfPatchIvCurve < fortenbachlab.protocols.FortenbachLabProtocol
 
             if strncmp(name, 'amp2', 4) && numel(obj.rig.getDeviceNames('Amp')) < 2
                 d.isHidden = true;
+            end
+
+            % Consistent display names for LED properties.
+            if strcmp(name, 'lightMean')
+                d.displayName = 'Background Amplitude';
             end
 
             % Hide light-related fields when lightOn is false.
@@ -293,19 +298,24 @@ classdef CfPatchIvCurve < fortenbachlab.protocols.FortenbachLabProtocol
                 pulseSignal = epoch.parameters('pulseSignal');
                 responseData = epoch.getResponse(obj.rig.getDevice(obj.amp));
                 [quantities, ~] = responseData.getData();
+                try
+                    [fullQ, ~] = responseData.getFullData();
+                    if ~isempty(fullQ), quantities = fullQ; end
+                catch
+                end
 
                 sr = obj.sampleRate;
                 prePts  = round(obj.preTime  / 1e3 * sr);
                 stimPts = round(obj.stimTime / 1e3 * sr);
 
                 % Baseline-subtracted steady-state current (second half of
-                % stimulus window).
+                % stimulus window).  Values are in base SI (Amps).
                 baseline    = mean(quantities(1:prePts));
                 ssStart     = prePts + round(stimPts * 0.5);
                 ssEnd       = prePts + stimPts;
                 steadyState = mean(quantities(ssStart:ssEnd)) - baseline;
 
-                % Accumulate into the map.
+                % Accumulate into the map (raw base-SI values).
                 ivData = figureHandler.userData.ivData;
                 if ivData.isKey(pulseSignal)
                     ivData(pulseSignal) = [ivData(pulseSignal), steadyState];
@@ -328,6 +338,23 @@ classdef CfPatchIvCurve < fortenbachlab.protocols.FortenbachLabProtocol
                     end
                 end
 
+                % Auto-scale current values for display.
+                [means, currentUnits] = obj.siAutoScale(means, '');
+                if isempty(currentUnits), currentUnits = 'A'; end
+                % Scale SEs by the same factor.
+                if ~isempty(ses) && ~isempty(means)
+                    rawPeak = max(abs(ivData(voltages(1))));
+                    for vi = 2:numel(voltages)
+                        rawPeak = max(rawPeak, max(abs(ivData(voltages(vi)))));
+                    end
+                    if rawPeak > 0 && abs(means(1)) > 0
+                        scaleFactor = means(1) / (mean(ivData(voltages(1))));
+                    else
+                        scaleFactor = 1;
+                    end
+                    ses = ses * scaleFactor;
+                end
+
                 errorbar(ax, voltages, means, ses, 'o-', ...
                     'Color', [0 0.4470 0.7410], ...
                     'MarkerFaceColor', [0 0.4470 0.7410], ...
@@ -335,7 +362,7 @@ classdef CfPatchIvCurve < fortenbachlab.protocols.FortenbachLabProtocol
                     'LineWidth', 1.5, ...
                     'CapSize', 8);
                 xlabel(ax, 'Membrane Potential (mV)');
-                ylabel(ax, 'Current (pA)');
+                ylabel(ax, ['Current (' currentUnits ')']);
                 title(ax, 'IV Curve');
                 grid(ax, 'on');
 
@@ -400,6 +427,35 @@ classdef CfPatchIvCurve < fortenbachlab.protocols.FortenbachLabProtocol
             obj.lightMean = vMean;
         end
 
+    end
+
+    methods (Static, Access = private)
+        function [scaledData, scaledUnits] = siAutoScale(data, units)
+            scaledData = data;
+            scaledUnits = units;
+            if isempty(data), return; end
+            peak = max(abs(data(:)));
+            if peak == 0 || ~isfinite(peak), return; end
+            if isempty(units), units = ''; end
+            siPrefixes = {'p','n',char(181),'u','m','k','M','G','T'};
+            baseUnit = units;
+            if numel(units) >= 2 && any(strcmp(units(1), siPrefixes))
+                baseUnit = units(2:end);
+            end
+            if peak >= 0.1 && peak < 1e4
+                scaledData = data; scaledUnits = baseUnit; return;
+            end
+            ex = floor(log10(peak));
+            if ex <= -10
+                scaledData = data * 1e12; scaledUnits = ['p' baseUnit];
+            elseif ex <= -7
+                scaledData = data * 1e9;  scaledUnits = ['n' baseUnit];
+            elseif ex <= -4
+                scaledData = data * 1e6;  scaledUnits = [char(181) baseUnit];
+            elseif ex <= -1
+                scaledData = data * 1e3;  scaledUnits = ['m' baseUnit];
+            end
+        end
     end
 
 end

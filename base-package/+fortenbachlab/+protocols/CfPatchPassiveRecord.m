@@ -68,36 +68,41 @@ classdef CfPatchPassiveRecord < fortenbachlab.protocols.FortenbachLabProtocol
                      'Commander for passive Vm recording.'], obj.modeAtStart);
             end
 
-            % Custom figure: Vm trace on top, Vrest trend on bottom.
+            % Custom figure: Vm trace on top, Vrest trend in middle,
+            % readout text at bottom.  Plain positioning (no uix.VBox).
             obj.vmFigure = obj.showFigure('symphonyui.builtin.figures.CustomFigure', @obj.updateFigure);
             f = obj.vmFigure.getFigureHandle();
             set(f, 'Name', 'Passive Recording');
 
-            layout = uix.VBox('Parent', f);
+            fPos = get(f, 'Position');
+            textH = 44;  topPad = 30;
 
-            % Vm trace axes (top).
-            obj.vmFigure.userData.traceAx = axes('Parent', layout);
+            % Vm trace axes (top 55%).
+            obj.vmFigure.userData.traceAx = axes('Parent', f, ...
+                'Units', 'normalized', ...
+                'Position', [0.10  0.52  0.85  1 - 0.52 - topPad/fPos(4)]);
             xlabel(obj.vmFigure.userData.traceAx, 'Time (ms)');
-            ylabel(obj.vmFigure.userData.traceAx, 'Membrane Potential (mV)');
+            ylabel(obj.vmFigure.userData.traceAx, 'mV');
             title(obj.vmFigure.userData.traceAx, 'Vm');
             grid(obj.vmFigure.userData.traceAx, 'on');
 
-            % Vrest trend axes (bottom).
-            obj.vmFigure.userData.trendAx = axes('Parent', layout);
+            % Vrest trend axes (middle).
+            obj.vmFigure.userData.trendAx = axes('Parent', f, ...
+                'Units', 'normalized', ...
+                'Position', [0.10  (textH + 15)/fPos(4)  0.85  0.52 - (textH + 25)/fPos(4)]);
             xlabel(obj.vmFigure.userData.trendAx, 'Epoch');
             ylabel(obj.vmFigure.userData.trendAx, 'V_{rest} (mV)');
             title(obj.vmFigure.userData.trendAx, 'Vrest Trend');
             grid(obj.vmFigure.userData.trendAx, 'on');
 
-            % Vrest readout text.
-            obj.vmFigure.userData.vrestText = uicontrol( ...
-                'Parent', layout, ...
+            % Vrest readout text (bottom strip).
+            obj.vmFigure.userData.vrestText = uicontrol(f, ...
                 'Style', 'text', ...
+                'Units', 'pixels', ...
+                'Position', [10 4 fPos(3)-20 textH], ...
                 'FontSize', 28, ...
                 'HorizontalAlignment', 'center', ...
                 'String', 'Vrest = ...');
-
-            set(layout, 'Heights', [-2 -1 44]);
 
             % Storage for trend data.
             obj.vmFigure.userData.vrestHistory = [];
@@ -116,7 +121,13 @@ classdef CfPatchPassiveRecord < fortenbachlab.protocols.FortenbachLabProtocol
         function updateFigure(obj, figureHandler, epoch)
             try
                 responseData = epoch.getResponse(obj.rig.getDevice(obj.amp));
-                [quantities, ~] = responseData.getData();
+                [quantities, units] = responseData.getData();
+                try
+                    [fullQ, fullU] = responseData.getFullData();
+                    if ~isempty(fullQ), quantities = fullQ; units = fullU; end
+                catch
+                end
+                [quantities, units] = obj.siAutoScale(quantities, units);
                 sr = responseData.sampleRate.quantityInBaseUnits;
 
                 % --- Vm trace ---
@@ -125,7 +136,7 @@ classdef CfPatchPassiveRecord < fortenbachlab.protocols.FortenbachLabProtocol
                 cla(ax);
                 plot(ax, tMs, quantities, 'Color', [0 0.45 0.74], 'LineWidth', 0.8);
                 xlabel(ax, 'Time (ms)');
-                ylabel(ax, 'Membrane Potential (mV)');
+                ylabel(ax, units, 'Interpreter', 'none');
                 grid(ax, 'on');
 
                 % Compute Vrest: skip first 50 ms for settling, then average.
@@ -141,11 +152,11 @@ classdef CfPatchPassiveRecord < fortenbachlab.protocols.FortenbachLabProtocol
                 plot(ax, [tMs(1) tMs(end)], [vrest vrest], '--', ...
                     'Color', [0.85 0.33 0.10], 'LineWidth', 1.5);
                 hold(ax, 'off');
-                title(ax, sprintf('Vm  (mean = %.1f mV)', vrest));
+                title(ax, sprintf('Vm  (mean = %.1f %s)', vrest, units));
 
                 % Update readout.
                 set(figureHandler.userData.vrestText, 'String', ...
-                    sprintf('V_{rest} = %.1f mV', vrest));
+                    sprintf('Vrest = %.1f %s', vrest, units));
 
                 % --- Vrest trend ---
                 figureHandler.userData.vrestHistory(end+1) = vrest;
@@ -157,7 +168,7 @@ classdef CfPatchPassiveRecord < fortenbachlab.protocols.FortenbachLabProtocol
                     'Color', [0.47 0.67 0.19], ...
                     'MarkerFaceColor', [0.47 0.67 0.19], 'MarkerSize', 4);
                 xlabel(trendAx, 'Epoch');
-                ylabel(trendAx, 'V_{rest} (mV)');
+                ylabel(trendAx, ['V_{rest} (' units ')']);
                 title(trendAx, sprintf('Vrest Trend  (n = %d)', numel(history)));
                 grid(trendAx, 'on');
 
@@ -229,6 +240,35 @@ classdef CfPatchPassiveRecord < fortenbachlab.protocols.FortenbachLabProtocol
             end
         end
 
+    end
+
+    methods (Static, Access = private)
+        function [scaledData, scaledUnits] = siAutoScale(data, units)
+            scaledData = data;
+            scaledUnits = units;
+            if isempty(data), return; end
+            peak = max(abs(data(:)));
+            if peak == 0 || ~isfinite(peak), return; end
+            if isempty(units), units = ''; end
+            siPrefixes = {'p','n',char(181),'u','m','k','M','G','T'};
+            baseUnit = units;
+            if numel(units) >= 2 && any(strcmp(units(1), siPrefixes))
+                baseUnit = units(2:end);
+            end
+            if peak >= 0.1 && peak < 1e4
+                scaledData = data; scaledUnits = baseUnit; return;
+            end
+            ex = floor(log10(peak));
+            if ex <= -10
+                scaledData = data * 1e12; scaledUnits = ['p' baseUnit];
+            elseif ex <= -7
+                scaledData = data * 1e9;  scaledUnits = ['n' baseUnit];
+            elseif ex <= -4
+                scaledData = data * 1e6;  scaledUnits = [char(181) baseUnit];
+            elseif ex <= -1
+                scaledData = data * 1e3;  scaledUnits = ['m' baseUnit];
+            end
+        end
     end
 
 end

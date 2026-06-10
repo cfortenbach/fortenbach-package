@@ -126,6 +126,12 @@ classdef DualMeanResponseFigure < symphonyui.core.FigureHandler
             
             function sweeps = plotResponse(response, epochParameters, groupBy, deviceName, axesHandle, sweeps, sweepColor)
                 [quantities, units] = response.getData();
+                try
+                    [fullQ, fullU] = response.getFullData();
+                    if ~isempty(fullQ), quantities = fullQ; units = fullU; end
+                catch
+                end
+                [quantities, units] = fortenbachlab.figures.DualMeanResponseFigure.siAutoScale(quantities, units);
                 if numel(quantities) > 0
                     x = (1:numel(quantities)) / response.sampleRate.quantityInBaseUnits;
                     y = quantities;
@@ -135,8 +141,8 @@ classdef DualMeanResponseFigure < symphonyui.core.FigureHandler
                 end
 
                 p = epochParameters;
-                if isempty(groupBy) && isnumeric(groupBy)
-                    parameters = p;
+                if isempty(groupBy)
+                    parameters = containers.Map();
                 else
                     parameters = containers.Map();
                     for i = 1:length(groupBy)
@@ -250,6 +256,35 @@ classdef DualMeanResponseFigure < symphonyui.core.FigureHandler
         end
 
     end
-        
+
+    methods (Static, Access = private)
+        function [scaledData, scaledUnits] = siAutoScale(data, units)
+            scaledData = data;
+            scaledUnits = units;
+            if isempty(data), return; end
+            peak = max(abs(data(:)));
+            if peak == 0 || ~isfinite(peak), return; end
+            if isempty(units), units = ''; end
+            siPrefixes = {'p','n',char(181),'u','m','k','M','G','T'};
+            baseUnit = units;
+            if numel(units) >= 2 && any(strcmp(units(1), siPrefixes))
+                baseUnit = units(2:end);
+            end
+            if peak >= 0.1 && peak < 1e4
+                scaledData = data; scaledUnits = baseUnit; return;
+            end
+            ex = floor(log10(peak));
+            if ex <= -10
+                scaledData = data * 1e12; scaledUnits = ['p' baseUnit];
+            elseif ex <= -7
+                scaledData = data * 1e9;  scaledUnits = ['n' baseUnit];
+            elseif ex <= -4
+                scaledData = data * 1e6;  scaledUnits = [char(181) baseUnit];
+            elseif ex <= -1
+                scaledData = data * 1e3;  scaledUnits = ['m' baseUnit];
+            end
+        end
+    end
+
 end
 

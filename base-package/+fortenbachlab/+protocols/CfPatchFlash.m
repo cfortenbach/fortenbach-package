@@ -6,8 +6,8 @@ classdef CfPatchFlash < fortenbachlab.protocols.FortenbachLabProtocol
         preTime = 50                    % Pulse leading duration (ms)
         stimTime = 10                   % Pulse duration (ms)
         tailTime = 3000                 % Pulse trailing duration (ms)
-        lightAmplitude = 5              % Pulse amplitude (V or norm. [0-1] depending on LED units)
-        lightMean = 0                   % Pulse and LED background mean (V or norm. [0-1] depending on LED units)
+        lightAmplitude = 5              % Flash amplitude (V or norm. [0-1] depending on LED units)
+        lightMean = 0                   % Background amplitude: LED DC voltage (V or norm. [0-1])
         ndf = 0.0                       % ND filter setting
         numberOfAverages = uint16(5)    % Number of epochs
         interpulseInterval = 0          % Duration between pulses (s)
@@ -49,6 +49,14 @@ classdef CfPatchFlash < fortenbachlab.protocols.FortenbachLabProtocol
 
             if strncmp(name, 'amp2', 4) && numel(obj.rig.getDeviceNames('Amp')) < 2
                 d.isHidden = true;
+            end
+
+            % Consistent display names for LED properties.
+            if strcmp(name, 'lightAmplitude')
+                d.displayName = 'Flash Amplitude';
+            end
+            if strcmp(name, 'lightMean')
+                d.displayName = 'Background Amplitude';
             end
 
             % Constrain NDF to valid filter wheel values.

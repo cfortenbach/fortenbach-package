@@ -38,6 +38,12 @@ classdef ResponseStimulusFigure < symphonyui.core.FigureHandler
 
                 response = epoch.getResponse(obj.ampDevice);
                 [respData, respUnits] = response.getData();
+                try
+                    [fullQ, fullU] = response.getFullData();
+                    if ~isempty(fullQ), respData = fullQ; respUnits = fullU; end
+                catch
+                end
+                [respData, respUnits] = obj.siAutoScale(respData, respUnits);
                 sr = response.sampleRate.quantityInBaseUnits;
                 tSec = (1:numel(respData)) / sr;
 
@@ -80,6 +86,35 @@ classdef ResponseStimulusFigure < symphonyui.core.FigureHandler
             cla(obj.ax);
         end
 
+    end
+
+    methods (Static, Access = private)
+        function [scaledData, scaledUnits] = siAutoScale(data, units)
+            scaledData = data;
+            scaledUnits = units;
+            if isempty(data), return; end
+            peak = max(abs(data(:)));
+            if peak == 0 || ~isfinite(peak), return; end
+            if isempty(units), units = ''; end
+            siPrefixes = {'p','n',char(181),'u','m','k','M','G','T'};
+            baseUnit = units;
+            if numel(units) >= 2 && any(strcmp(units(1), siPrefixes))
+                baseUnit = units(2:end);
+            end
+            if peak >= 0.1 && peak < 1e4
+                scaledData = data; scaledUnits = baseUnit; return;
+            end
+            ex = floor(log10(peak));
+            if ex <= -10
+                scaledData = data * 1e12; scaledUnits = ['p' baseUnit];
+            elseif ex <= -7
+                scaledData = data * 1e9;  scaledUnits = ['n' baseUnit];
+            elseif ex <= -4
+                scaledData = data * 1e6;  scaledUnits = [char(181) baseUnit];
+            elseif ex <= -1
+                scaledData = data * 1e3;  scaledUnits = ['m' baseUnit];
+            end
+        end
     end
 
 end

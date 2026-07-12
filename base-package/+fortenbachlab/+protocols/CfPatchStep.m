@@ -3,7 +3,7 @@ classdef CfPatchStep < fortenbachlab.protocols.FortenbachLabProtocol
     
     properties
         amp                             % Output amplifier
-        preTime = 50                     % Pulse leading duration (ms)
+        preTime = 100                    % Pulse leading duration (ms)
         stimTime = 500                  % Pulse duration (ms)
         tailTime = 50                   % Pulse trailing duration (ms)
         pulseAmplitude = 100            % Pulse amplitude (mV or pA depending on amp mode)

@@ -15,7 +15,7 @@ classdef CfMeaFlashFamily < fortenbachlab.protocols.FortenbachLabProtocol
     properties
         led                             % Output LED
         amp                             % Output amplifier
-        preTime = 50                    % Pulse leading duration (ms)
+        preTime = 100                   % Pulse leading duration (ms)
         stimTime = 5000                 % Pulse duration (ms)
         tailTime = 5000                 % Pulse trailing duration (ms)
         firstLightAmplitude = 0.02      % First flash amplitude (V [0-10])

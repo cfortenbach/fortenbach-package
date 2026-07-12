@@ -187,25 +187,27 @@ classdef CfPatchMeasureVrest < fortenbachlab.protocols.FortenbachLabProtocol
                 % Skip first 50 ms for settling.
                 skipPts = round(0.050 * sr);
                 if skipPts < numel(quantities)
-                    vrest = mean(quantities(skipPts+1:end));
+                    vrest_V = mean(quantities(skipPts+1:end));
                 else
-                    vrest = mean(quantities);
+                    vrest_V = mean(quantities);
                 end
-                obj.measuredVrest = vrest;
+                % getData() returns base SI (Volts); convert to mV.
+                vrest_mV = vrest_V * 1e3;
+                obj.measuredVrest = vrest_mV;
 
                 % Save to epoch.
-                epoch.addParameter('restingMembranePotential_mV', vrest);
+                epoch.addParameter('restingMembranePotential_mV', vrest_mV);
 
                 % Save to epoch block so it persists for subsequent protocols.
                 try
                     eb = obj.persistor.currentEpochBlock;
                     if ~isempty(eb)
-                        eb.setProperty('restingMembranePotential_mV', vrest);
+                        eb.setProperty('restingMembranePotential_mV', vrest_mV);
                     end
                 catch
                 end
 
-                fprintf('[MeasureVrest] Vrest = %.1f mV\n', vrest);
+                fprintf('[MeasureVrest] Vrest = %.1f mV\n', vrest_mV);
             catch ME
                 fprintf(2, '[MeasureVrest] Error computing Vrest: %s\n', ME.message);
             end

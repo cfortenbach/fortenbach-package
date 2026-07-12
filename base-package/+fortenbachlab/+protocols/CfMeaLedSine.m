@@ -5,7 +5,7 @@ classdef CfMeaLedSine < fortenbachlab.protocols.FortenbachLabProtocol
     properties
         led                             % Output LED
         amp                             % Output amplifier
-        preTime = 50                    % Leading duration (ms)
+        preTime = 100                   % Leading duration (ms)
         stimTime = 5000                 % Stimulus duration (ms)
         tailTime = 5000                 % Trailing duration (ms)
         lightMean = 5                   % Background amplitude: LED DC voltage (V [0-10])

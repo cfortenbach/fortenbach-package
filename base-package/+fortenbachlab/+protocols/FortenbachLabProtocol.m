@@ -400,13 +400,14 @@ classdef (Abstract) FortenbachLabProtocol < symphonyui.core.Protocol
             end
 
             % Baseline before test pulse.
+            % getData() returns base SI: Amps (Vclamp) or Volts (Iclamp).
             baseline = mean(quantities(1:baseEnd));
 
             if strcmp(mode, 'Vclamp')
-                metrics.holdingCurrent = baseline;
+                metrics.holdingCurrent = baseline * 1e12;   % A -> pA
                 metrics.holdingVoltage = NaN;
             else
-                metrics.holdingVoltage = baseline;
+                metrics.holdingVoltage = baseline * 1e3;    % V -> mV
                 metrics.holdingCurrent = NaN;
             end
 
@@ -419,17 +420,21 @@ classdef (Abstract) FortenbachLabProtocol < symphonyui.core.Protocol
             % Test pulse amplitude from clamp mode.
             testAmp = obj.testPulseAmplitude(ampName);
 
-            % Compute Rinput = V / I.  mV/pA = GOhm, *1000 = MOhm.
+            % Compute Rinput = V / I in base SI, then convert to MOhm.
+            % getData() returns base SI (A or V); testAmp is in mV or pA.
             if strcmp(mode, 'Vclamp')
+                % testAmp = mV, ssDeflection = A (base SI)
                 if abs(ssDeflection) > 0
-                    metrics.inputResistance = abs(testAmp / ssDeflection) * 1000;
+                    R_Ohm = (testAmp / 1000) / ssDeflection;  % mV->V / A = Ohm
+                    metrics.inputResistance = abs(R_Ohm) / 1e6;  % Ohm -> MOhm
                 else
                     metrics.inputResistance = NaN;
                 end
             else
-                % Iclamp: command = pA, response = mV.
+                % Iclamp: testAmp = pA, ssDeflection = V (base SI)
                 if abs(testAmp) > 0
-                    metrics.inputResistance = abs(ssDeflection / testAmp) * 1000;
+                    R_Ohm = ssDeflection / (testAmp * 1e-12);  % V / (pA->A) = Ohm
+                    metrics.inputResistance = abs(R_Ohm) / 1e6;  % Ohm -> MOhm
                 else
                     metrics.inputResistance = NaN;
                 end

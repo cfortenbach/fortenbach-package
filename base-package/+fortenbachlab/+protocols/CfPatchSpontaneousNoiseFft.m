@@ -140,13 +140,41 @@ classdef CfPatchSpontaneousNoiseFft < fortenbachlab.protocols.FortenbachLabProto
             epoch.addStimulus(device, obj.createStimulusFromArray(data, units));
         end
 
-        function tf = shouldContinuePreparingEpochs(obj)
+        function tf = shouldContinuePreloadingEpochs(obj)
+            % Limit preloading to maxInFlight epochs ahead of completed.
             inflight = obj.numEpochsPrepared - obj.numEpochsCompleted;
             tf = obj.numEpochsPrepared < obj.numberOfAverages && inflight < obj.maxInFlight;
         end
 
+        function tf = shouldContinuePreparingEpochs(obj)
+            % Return true as long as there are more epochs to prepare.
+            % Do NOT check in-flight limit here — that goes in shouldWait.
+            % Returning false here causes the Controller's processLoop to
+            % exit permanently, which would prevent remaining epochs from
+            % ever being prepared.
+            tf = obj.numEpochsPrepared < obj.numberOfAverages;
+        end
+
+        function tf = shouldWaitToContinuePreparingEpochs(obj)
+            % Pause epoch preparation when the in-flight limit is reached.
+            % The Controller's processLoop calls this in its inner wait
+            % loop, pausing with pause(0.01) until the currently-running
+            % epoch completes and inflight drops below maxInFlight.
+            inflight = obj.numEpochsPrepared - obj.numEpochsCompleted;
+            tf = inflight >= obj.maxInFlight;
+        end
+
         function tf = shouldContinueRun(obj)
             tf = obj.numEpochsCompleted < obj.numberOfAverages;
+        end
+
+        function prepareInterval(obj, interval)
+            % Call super to increment the interval counter.  Do NOT add a
+            % zero-duration DC stimulus — it triggers a .NET
+            % KeyNotFoundException in the C# epoch queue.  The Controller's
+            % nextInterval() adds device backgrounds automatically, which
+            % gives the interval a well-defined (near-zero) duration.
+            prepareInterval@fortenbachlab.protocols.FortenbachLabProtocol(obj, interval);
         end
 
         function completeEpoch(obj, epoch)
@@ -182,14 +210,15 @@ classdef CfPatchSpontaneousNoiseFft < fortenbachlab.protocols.FortenbachLabProto
                 end
                 if isempty(obj.unitsStr), obj.unitsStr = units; end
 
-                % Time Trace.
+                % Time Trace — auto-scale from base SI for readable axis labels.
                 if obj.showLiveFigure && ~isempty(obj.liveRawAx) && isvalid(obj.liveRawAx)
                     try
                         N = numel(y); t = (0:N-1) / obj.fsHz;
-                        cla(obj.liveRawAx); plot(obj.liveRawAx, t, y);
+                        [scaledY, scaledUnits] = obj.siAutoScale(y, units);
+                        cla(obj.liveRawAx); plot(obj.liveRawAx, t, scaledY);
                         xlabel(obj.liveRawAx, 'Time (s)');
-                        ylabel(obj.liveRawAx, sprintf('Response (%s)', obj.unitsStr));
-                        title(obj.liveRawAx, 'Time Trace'); grid(obj.liveRawAx, 'on'); drawnow;
+                        ylabel(obj.liveRawAx, sprintf('Response (%s)', scaledUnits));
+                        title(obj.liveRawAx, 'Time Trace'); grid(obj.liveRawAx, 'on');
                     catch, end
                 end
 
@@ -233,7 +262,7 @@ classdef CfPatchSpontaneousNoiseFft < fortenbachlab.protocols.FortenbachLabProto
                         if obj.showGuides, obj.drawGuideLines_(obj.curAx); end
                         hold(obj.curAx, 'off');
                         xlabel(obj.curAx, 'Frequency (Hz)'); ylabel(obj.curAx, 'Power / Hz');
-                        title(obj.curAx, 'Current PSD'); grid(obj.curAx, 'on'); drawnow;
+                        title(obj.curAx, 'Current PSD'); grid(obj.curAx, 'on');
                     catch, end
                 end
 
@@ -246,7 +275,7 @@ classdef CfPatchSpontaneousNoiseFft < fortenbachlab.protocols.FortenbachLabProto
                         if obj.showGuides, obj.drawGuideLines_(obj.avgAx); end
                         hold(obj.avgAx, 'off');
                         xlabel(obj.avgAx, 'Frequency (Hz)'); ylabel(obj.avgAx, 'Power / Hz');
-                        title(obj.avgAx, 'Average PSD'); grid(obj.avgAx, 'on'); drawnow;
+                        title(obj.avgAx, 'Average PSD'); grid(obj.avgAx, 'on');
 
                         [bandsClipped, rmsVals] = obj.computeBandRms_(f, psd, obj.fsHz/2, obj.rmsBands_Hz);
                         if obj.showBandTableInConsole, obj.printBandTable_(bandsClipped, rmsVals); end
@@ -258,6 +287,11 @@ classdef CfPatchSpontaneousNoiseFft < fortenbachlab.protocols.FortenbachLabProto
                 fprintf(2, '[NoiseFFT] completeEpoch error: %s\n', ME.message);
             end
 
+            % Single throttled render for all three figure windows.
+            % Replaces three blocking drawnow calls that prevented MATLAB
+            % from processing the Stop signal during this callback.
+            drawnow('limitrate');
+
             % Compute and save cell health metrics from the test pulse.
             try
                 testAmp = obj.testPulseAmplitude(obj.amp);
@@ -267,6 +301,25 @@ classdef CfPatchSpontaneousNoiseFft < fortenbachlab.protocols.FortenbachLabProto
             end
 
             completeEpoch@fortenbachlab.protocols.FortenbachLabProtocol(obj, epoch);
+        end
+
+        function completeRun(obj)
+            completeRun@fortenbachlab.protocols.FortenbachLabProtocol(obj);
+
+            % Close standalone figure windows (not managed by Symphony's
+            % showFigure/FigureHandlerManager).
+            figs = [obj.curFig, obj.avgFig, obj.liveRawFig];
+            for i = 1:numel(figs)
+                try
+                    if ~isempty(figs(i)) && ishandle(figs(i))
+                        delete(figs(i));
+                    end
+                catch
+                end
+            end
+            obj.curFig = []; obj.avgFig = []; obj.liveRawFig = [];
+            obj.curAx  = []; obj.avgAx  = []; obj.liveRawAx  = [];
+            obj.rmsPanelH = [];
         end
 
     end
@@ -389,6 +442,48 @@ classdef CfPatchSpontaneousNoiseFft < fortenbachlab.protocols.FortenbachLabProto
             catch, end
         end
 
+    end
+
+    methods (Static, Access = private)
+        function [scaledData, scaledUnits] = siAutoScale(data, units)
+            %SIAUTOSCALE  Pick an SI prefix so axis tick labels stay readable.
+            %   getData() returns numeric values in BASE SI units (e.g. Amps)
+            %   but may label them with a prefixed string (e.g. 'pA').
+            %   We strip any existing prefix so we always work from the
+            %   base unit, then choose the right prefix for the magnitude.
+            scaledData = data;
+            scaledUnits = units;
+            if isempty(data), return; end
+            peak = max(abs(data(:)));
+            if peak == 0 || ~isfinite(peak), return; end
+            if isempty(units), units = ''; end
+
+            % Strip existing SI prefix to recover the base unit.
+            siPrefixes = {'p','n',char(181),'u','m','k','M','G','T'};
+            baseUnit = units;
+            if numel(units) >= 2 && any(strcmp(units(1), siPrefixes))
+                baseUnit = units(2:end);
+            end
+
+            % If values are already in a comfortable range, keep as-is
+            % but label with the base unit (no misleading prefix).
+            if peak >= 0.1 && peak < 1e4
+                scaledData = data;
+                scaledUnits = baseUnit;
+                return;
+            end
+
+            ex = floor(log10(peak));
+            if ex <= -10
+                scaledData = data * 1e12; scaledUnits = ['p' baseUnit];
+            elseif ex <= -7
+                scaledData = data * 1e9;  scaledUnits = ['n' baseUnit];
+            elseif ex <= -4
+                scaledData = data * 1e6;  scaledUnits = [char(181) baseUnit];
+            elseif ex <= -1
+                scaledData = data * 1e3;  scaledUnits = ['m' baseUnit];
+            end
+        end
     end
 
 end

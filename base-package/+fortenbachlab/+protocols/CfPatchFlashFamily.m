@@ -32,7 +32,7 @@ classdef CfPatchFlashFamily < fortenbachlab.protocols.FortenbachLabProtocol
 
     properties
         led                             % Output LED
-        preTime = 50                    % Pulse leading duration (ms)
+        preTime = 100                   % Pulse leading duration (ms)
         stimTime = 10                   % Pulse duration (ms)
         tailTime = 3000                 % Pulse trailing duration (ms)
         firstLightAmplitude = 0.02      % First flash amplitude (V [0-10])

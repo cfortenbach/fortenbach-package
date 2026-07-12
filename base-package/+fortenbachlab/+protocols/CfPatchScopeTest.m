@@ -1,36 +1,35 @@
-classdef CfPatchSealAndLeak < fortenbachlab.protocols.FortenbachLabProtocol
-    % Presents rectangular pulse stimuli to a specified amplifier while
-    % recording the response.  A real-time trace is displayed and the
-    % membrane resistance is calculated and shown continuously.
+classdef CfPatchScopeTest < fortenbachlab.protocols.FortenbachLabProtocol
+    % Oscilloscope-speed real-time seal / leak monitor.
+    %
+    % Sends a repeating rectangular pulse to the amplifier and displays the
+    % response trace plus membrane resistance at ~30 Hz — fast enough to
+    % rival a bench oscilloscope.
     %
     % Architecture
     % ------------
     % Each epoch is a single pulse cycle (preTime + stimTime + tailTime).
     % Epochs run continuously until the user presses Stop.  A MATLAB timer
-    % drives the display at ~30 Hz, reading from a cached copy of the
-    % most-recent epoch's response.  The epoch-completion callback
-    % (completeEpoch) does NO rendering — it only copies the response into
-    % a cache variable.  This fully decouples data acquisition from
-    % graphics, keeping the epoch pipeline fast and the display smooth.
-    % Without this decoupling, the rapid epoch-completion callbacks
-    % (50+/sec for 20 ms epochs) build a display backlog that causes
-    % stale data to keep rendering for many seconds after the user
-    % presses Stop.
+    % drives the display at the selected refresh rate, reading from a
+    % cached copy of the most-recent epoch's response.  The epoch-
+    % completion callback (completeEpoch) does NO rendering — it only
+    % copies the response into a cache variable.  This fully decouples
+    % data acquisition from graphics, keeping the epoch pipeline fast and
+    % the display smooth.
 
     properties
         amp                             % Output amplifier
-        mode = 'seal'                   % Current mode of protocol
-        alternateMode = true            % Alternate from seal to leak to seal etc., on each successive run
-        preTime = 5                     % Pulse leading duration (ms)
-        stimTime = 10                   % Pulse duration (ms)
-        tailTime = 5                    % Pulse trailing duration (ms)
+        mode = 'seal'                   % Current mode (seal or leak)
+        alternateMode = true            % Alternate mode on each successive run
+        preTime = 15                    % Pulse leading duration (ms)
+        stimTime = 30                   % Pulse duration (ms)
+        tailTime = 15                   % Pulse trailing duration (ms)
         pulseAmplitude = 10             % Pulse amplitude (mV or pA depending on amp mode)
-        leakAmpHoldSignal = -60         % Amplifier hold signal to use while in leak mode (mV or pA depending on amp mode)
+        leakAmpHoldSignal = -60         % Amplifier hold signal in leak mode (mV or pA)
         refreshRate = 30                % Display update rate (Hz)
     end
 
     properties (Hidden, Dependent)
-        ampHoldSignal                   % Amplifier hold signal (mV or pA depending on amp mode)
+        ampHoldSignal                   % Amplifier hold signal (mV or pA)
     end
 
     properties (Dependent, SetAccess = private)
@@ -40,11 +39,11 @@ classdef CfPatchSealAndLeak < fortenbachlab.protocols.FortenbachLabProtocol
     properties (Hidden)
         ampType
         modeType = symphonyui.core.PropertyType('char', 'row', {'seal', 'leak'})
-        modeFigure
-        displayTimer                    % MATLAB timer for display updates
+        scopeFigure
+        scopeTimer
         latestCycleData                 % Most recent epoch response (double[])
         latestCycleUnits                % Units string for the response
-        maxInFlight = 20                % Max epochs in DAQ queue (~400ms for 20ms epochs)
+        maxInFlight = 20                % Max epochs in DAQ queue
     end
 
     methods
@@ -59,13 +58,11 @@ classdef CfPatchSealAndLeak < fortenbachlab.protocols.FortenbachLabProtocol
 
         function didSetRig(obj)
             didSetRig@fortenbachlab.protocols.FortenbachLabProtocol(obj);
-
             [obj.amp, obj.ampType] = obj.createDeviceNamesProperty('Amp');
         end
 
         function d = getPropertyDescriptor(obj, name)
             d = getPropertyDescriptor@fortenbachlab.protocols.FortenbachLabProtocol(obj, name);
-
             if strncmp(name, 'amp2', 4) && numel(obj.rig.getDeviceNames('Amp')) < 2
                 d.isHidden = true;
             end
@@ -74,15 +71,7 @@ classdef CfPatchSealAndLeak < fortenbachlab.protocols.FortenbachLabProtocol
         function p = getPreview(obj, panel)
             p = symphonyui.builtin.previews.StimuliPreview(panel, @()createPreviewStimuli(obj));
             function s = createPreviewStimuli(obj)
-                gen = symphonyui.builtin.stimuli.PulseGenerator();
-                gen.preTime = obj.preTime;
-                gen.stimTime = obj.stimTime;
-                gen.tailTime = obj.tailTime;
-                gen.amplitude = obj.pulseAmplitude;
-                gen.mean = obj.ampHoldSignal;
-                gen.sampleRate = obj.sampleRate;
-                gen.units = obj.rig.getDevice(obj.amp).background.displayUnits;
-                s = gen.generate();
+                s = obj.createAmpStimulus();
             end
         end
 
@@ -90,91 +79,89 @@ classdef CfPatchSealAndLeak < fortenbachlab.protocols.FortenbachLabProtocol
             prepareRun@fortenbachlab.protocols.FortenbachLabProtocol(obj);
 
             % Clean up any leftover timer from a previous run.
-            obj.stopDisplayTimer();
+            obj.stopScopeTimer();
             obj.latestCycleData  = [];
             obj.latestCycleUnits = '';
 
-            % Remove any previous figure.  Use delete() — NOT close() — to
-            % bypass the figure's CloseRequestFcn and avoid a re-entrant
-            % cascade through Symphony's FigureHandlerManager.
-            if ~isempty(obj.modeFigure) && isvalid(obj.modeFigure)
+            % Remove any previous scope figure.  Use delete() — NOT close() —
+            % to bypass the figure's CloseRequestFcn, which would trigger a
+            % re-entrant cascade through Symphony's FigureHandlerManager
+            % (FigureHandler.close → notify Closed → delete handler →
+            % Protocol.delete → closeFigures → close on deleted handler).
+            if ~isempty(obj.scopeFigure) && isvalid(obj.scopeFigure)
                 try
-                    fh = obj.modeFigure.getFigureHandle();
+                    fh = obj.scopeFigure.getFigureHandle();
                     if isvalid(fh)
                         set(fh, 'CloseRequestFcn', '');
                         delete(fh);
                     end
                 catch
                 end
-                obj.modeFigure = [];
+                obj.scopeFigure = [];
             end
 
-            % Combined figure: response trace on top, mode + resistance below.
-            % The figure handler callback is a no-op because all display is
-            % driven by the MATLAB timer (see displayUpdate).
-            obj.modeFigure = obj.showFigure( ...
+            % --- Build figure: response axes on top, info strip on bottom ---
+            obj.scopeFigure = obj.showFigure( ...
                 'symphonyui.builtin.figures.CustomFigure', @obj.handleEpochNoop);
-            f = obj.modeFigure.getFigureHandle();
-            set(f, 'Name', ['Seal & Leak - ' obj.mode]);
+            f = obj.scopeFigure.getFigureHandle();
+            set(f, 'Name', ['Scope - ' obj.mode]);
 
             % Override CloseRequestFcn so that if the user clicks X during
             % a run, we stop the timer and delete the figure cleanly
             % without triggering Symphony's re-entrant close cascade.
             set(f, 'CloseRequestFcn', @(src, ~) obj.safeFigureClose(src));
 
-            % Use manual positioning instead of uix.VBox (unavailable in
-            % Symphony 3).  Info panel is a fixed 96 px strip at the
-            % bottom; the axes fill the rest.
-            fPos = get(f, 'Position');
-            infoH = 96;
+            fPos  = get(f, 'Position');
+            infoH = 96;    % fixed-height info strip at bottom (px)
+            topPad = 40;   % room for axes title at top (px)
 
-            % Response axes (top portion).  Leave 40 px at the top for
-            % the title so it isn't clipped.
-            topPad = 40;
-            obj.modeFigure.userData.ax = axes( ...
+            % Response axes (fills space above info strip).
+            obj.scopeFigure.userData.ax = axes( ...
                 'Parent', f, ...
                 'Units', 'normalized', ...
-                'Position', [0.08 (infoH + 10) / fPos(4) 0.88 1 - (infoH + 10 + topPad) / fPos(4)]);
-            xlabel(obj.modeFigure.userData.ax, 'Time (ms)');
-            ylabel(obj.modeFigure.userData.ax, obj.rig.getDevice(obj.amp).background.displayUnits);
-            title(obj.modeFigure.userData.ax, [obj.mode ' - Response']);
+                'Position', [0.08  (infoH + 10) / fPos(4) ...
+                             0.88  1 - (infoH + 10 + topPad) / fPos(4)]);
+            xlabel(obj.scopeFigure.userData.ax, 'Time (ms)');
+            ylabel(obj.scopeFigure.userData.ax, ...
+                obj.rig.getDevice(obj.amp).background.displayUnits);
+            title(obj.scopeFigure.userData.ax, [obj.mode ' - Scope']);
 
-            % Info panel (bottom strip): mode label + resistance readout.
-            obj.modeFigure.userData.modeText = uicontrol(f, ...
+            % Info panel: mode label + resistance readout.
+            obj.scopeFigure.userData.modeText = uicontrol(f, ...
                 'Style', 'text', ...
                 'Units', 'pixels', ...
-                'Position', [10 54 fPos(3)-20 36], ...
+                'Position', [10  54  fPos(3)-20  36], ...
                 'FontSize', 24, ...
                 'HorizontalAlignment', 'center', ...
                 'String', [obj.mode ' running...']);
-            obj.modeFigure.userData.resistanceText = uicontrol(f, ...
+            obj.scopeFigure.userData.resistanceText = uicontrol(f, ...
                 'Style', 'text', ...
                 'Units', 'pixels', ...
-                'Position', [10 4 fPos(3)-20 48], ...
+                'Position', [10  4  fPos(3)-20  48], ...
                 'FontSize', 36, ...
                 'HorizontalAlignment', 'center', ...
                 'String', 'R = ...');
 
-            % Keep layout stable on resize.
-            ud = obj.modeFigure.userData;
-            set(f, 'SizeChangedFcn', @(src,~) resizeLayout(src, ud, infoH, topPad));
-            function resizeLayout(fig, ud, infoH, topPad)
+            % Keep layout stable on window resize.
+            ud = obj.scopeFigure.userData;
+            set(f, 'SizeChangedFcn', @(src, ~) resizeLayout(src, ud, infoH, topPad));
+            function resizeLayout(fig, ud, ih, tp)
                 p = get(fig, 'Position');
                 w = p(3); h = p(4);
                 set(ud.ax, 'Position', ...
-                    [0.08 (infoH + 10) / h  0.88  1 - (infoH + 10 + topPad) / h]);
-                set(ud.modeText, 'Position', [10 54 w-20 36]);
-                set(ud.resistanceText, 'Position', [10 4 w-20 48]);
+                    [0.08  (ih + 10) / h  0.88  1 - (ih + 10 + tp) / h]);
+                set(ud.modeText,       'Position', [10  54  w-20  36]);
+                set(ud.resistanceText,  'Position', [10   4  w-20  48]);
             end
 
             % --- Start the display timer ---
             period = max(0.020, round(1 / obj.refreshRate * 1000) / 1000);
-            obj.displayTimer = timer( ...
+            obj.scopeTimer = timer( ...
                 'ExecutionMode', 'fixedRate', ...
                 'Period', period, ...
                 'BusyMode', 'drop', ...
-                'TimerFcn', @(~, ~) obj.displayUpdate());
-            start(obj.displayTimer);
+                'TimerFcn', @(~, ~) obj.scopeUpdate());
+            start(obj.scopeTimer);
         end
 
         function handleEpochNoop(~, ~, ~)
@@ -182,12 +169,37 @@ classdef CfPatchSealAndLeak < fortenbachlab.protocols.FortenbachLabProtocol
             % Symphony's epoch-completion figure-handler callbacks.
         end
 
+        function stim = createAmpStimulus(obj)
+            gen = symphonyui.builtin.stimuli.PulseGenerator();
+
+            gen.preTime    = obj.preTime;
+            gen.stimTime   = obj.stimTime;
+            gen.tailTime   = obj.tailTime;
+            gen.amplitude  = obj.pulseAmplitude;
+            gen.mean       = obj.ampHoldSignal;
+            gen.sampleRate = obj.sampleRate;
+            gen.units      = obj.rig.getDevice(obj.amp).background.displayUnits;
+
+            stim = gen.generate();
+        end
+
+        function prepareEpoch(obj, epoch)
+            prepareEpoch@fortenbachlab.protocols.FortenbachLabProtocol(obj, epoch);
+
+            device = obj.rig.getDevice(obj.amp);
+            epoch.addStimulus(device, obj.createAmpStimulus());
+            epoch.addResponse(device);
+
+            % Set device background to the hold signal so the amplifier
+            % returns to the correct level when the protocol stops.
+            device.background = symphonyui.core.Measurement( ...
+                obj.ampHoldSignal, device.background.displayUnits);
+        end
+
         % ================================================================
         %  EPOCH COMPLETION — cache data only, NO rendering.
         %  This keeps the epoch pipeline fast so the next epoch can start
-        %  with minimal delay.  With 20 ms epochs (~50/sec), even light
-        %  rendering work in this callback builds a backlog that causes
-        %  stale data to keep displaying after Stop.
+        %  with minimal delay.
         % ================================================================
         function completeEpoch(obj, epoch)
             try
@@ -209,13 +221,13 @@ classdef CfPatchSealAndLeak < fortenbachlab.protocols.FortenbachLabProtocol
         %  TIMER CALLBACK — runs at ~refreshRate Hz, reads the cached
         %  response and updates the figure.
         % ================================================================
-        function displayUpdate(obj)
+        function scopeUpdate(obj)
             try
                 % --- Guards: everything still alive? ---
-                if isempty(obj.modeFigure) || ~isvalid(obj.modeFigure)
+                if isempty(obj.scopeFigure) || ~isvalid(obj.scopeFigure)
                     return;
                 end
-                fh = obj.modeFigure.getFigureHandle();
+                fh = obj.scopeFigure.getFigureHandle();
                 if ~isvalid(fh), return; end
                 if isempty(obj.latestCycleData), return; end
 
@@ -252,7 +264,7 @@ classdef CfPatchSealAndLeak < fortenbachlab.protocols.FortenbachLabProtocol
                     end
                 end
 
-                ud = obj.modeFigure.userData;
+                ud = obj.scopeFigure.userData;
                 set(ud.resistanceText, 'String', rStr);
 
                 % --- Auto-scale and update the trace ---
@@ -265,7 +277,7 @@ classdef CfPatchSealAndLeak < fortenbachlab.protocols.FortenbachLabProtocol
                 else
                     ud.line = line(tMs, scaled, 'Parent', ax, ...
                         'Color', [0 0.4470 0.7410]);
-                    obj.modeFigure.userData = ud;
+                    obj.scopeFigure.userData = ud;
                 end
 
                 % Padded y-axis with short history for stability.
@@ -279,7 +291,7 @@ classdef CfPatchSealAndLeak < fortenbachlab.protocols.FortenbachLabProtocol
                 if size(ud.yHistory, 1) > histLen
                     ud.yHistory(1, :) = [];
                 end
-                obj.modeFigure.userData = ud;
+                obj.scopeFigure.userData = ud;
 
                 yLo  = min(ud.yHistory(:, 1));
                 yHi  = max(ud.yHistory(:, 2));
@@ -300,78 +312,35 @@ classdef CfPatchSealAndLeak < fortenbachlab.protocols.FortenbachLabProtocol
             end
         end
 
-        function stim = createAmpStimulus(obj)
-            gen = symphonyui.builtin.stimuli.PulseGenerator();
-
-            gen.preTime = obj.preTime;
-            gen.stimTime = obj.stimTime;
-            gen.tailTime = obj.tailTime;
-            gen.amplitude = obj.pulseAmplitude;
-            gen.mean = obj.ampHoldSignal;
-            gen.sampleRate = obj.sampleRate;
-            gen.units = obj.rig.getDevice(obj.amp).background.displayUnits;
-
-            stim = gen.generate();
-        end
-
-        function stim = createOscilloscopeTriggerStimulus(obj)
-            gen = symphonyui.builtin.stimuli.PulseGenerator();
-
-            gen.preTime = 0;
-            gen.stimTime = 1;
-            gen.tailTime = obj.preTime + obj.stimTime + obj.tailTime - 1;
-            gen.amplitude = 1;
-            gen.mean = 0;
-            gen.sampleRate = obj.sampleRate;
-            gen.units = symphonyui.core.Measurement.UNITLESS;
-
-            stim = gen.generate();
-        end
-
-        function prepareEpoch(obj, epoch)
-            prepareEpoch@fortenbachlab.protocols.FortenbachLabProtocol(obj, epoch);
-
-            epoch.addStimulus(obj.rig.getDevice(obj.amp), obj.createAmpStimulus());
-            epoch.addResponse(obj.rig.getDevice(obj.amp));
-
-            triggers = obj.rig.getDevices('Oscilloscope Trigger');
-            if ~isempty(triggers)
-                epoch.addStimulus(triggers{1}, obj.createOscilloscopeTriggerStimulus());
-            end
-
-            device = obj.rig.getDevice(obj.amp);
-            device.background = symphonyui.core.Measurement(obj.ampHoldSignal, device.background.displayUnits);
-        end
+        % ================================================================
+        %  EPOCH LIFECYCLE
+        % ================================================================
 
         function tf = shouldContinuePreloadingEpochs(obj)
             % Limit initial preload to maxInFlight epochs so the DAQ queue
-            % stays small.  With 20 ms epochs the default 3-second queue
-            % holds ~150 epochs — far too many.  When Stop is pressed the
-            % C# side must drain or discard them all, causing a visible
-            % delay.  Keeping the queue short makes stop near-instant.
+            % stays small.  A smaller queue means Stop takes effect almost
+            % instantly instead of waiting for hundreds of queued epochs to
+            % drain.
             inflight = obj.numEpochsPrepared - obj.numEpochsCompleted;
             tf = inflight < obj.maxInFlight;
         end
 
-        function tf = shouldContinuePreparingEpochs(obj) %#ok<MANU>
-            tf = true;
+        function tf = shouldContinuePreparingEpochs(~) %#ok<MANU>
+            tf = true;   % Run continuously until the user presses Stop.
         end
 
         function tf = shouldWaitToContinuePreparingEpochs(obj)
             % Pause epoch preparation when the in-flight limit is reached.
-            % The Controller's processLoop calls this in its inner wait
-            % loop, pausing with pause(0.01) until an in-flight epoch
-            % completes and inflight drops below maxInFlight.
             inflight = obj.numEpochsPrepared - obj.numEpochsCompleted;
             tf = inflight >= obj.maxInFlight;
         end
 
-        function tf = shouldContinueRun(obj) %#ok<MANU>
+        function tf = shouldContinueRun(~) %#ok<MANU>
             tf = true;
         end
 
         function completeRun(obj)
-            obj.stopDisplayTimer();
+            obj.stopScopeTimer();
             obj.latestCycleData  = [];
             obj.latestCycleUnits = '';
 
@@ -385,10 +354,10 @@ classdef CfPatchSealAndLeak < fortenbachlab.protocols.FortenbachLabProtocol
                 end
             end
 
-            if ~isempty(obj.modeFigure) && isvalid(obj.modeFigure) ...
-                    && isstruct(obj.modeFigure.userData) ...
-                    && isfield(obj.modeFigure.userData, 'modeText')
-                set(obj.modeFigure.userData.modeText, 'String', [obj.mode ' next']);
+            if ~isempty(obj.scopeFigure) && isvalid(obj.scopeFigure) ...
+                    && isstruct(obj.scopeFigure.userData) ...
+                    && isfield(obj.scopeFigure.userData, 'modeText')
+                set(obj.scopeFigure.userData.modeText, 'String', [obj.mode ' next']);
             end
         end
 
@@ -409,20 +378,20 @@ classdef CfPatchSealAndLeak < fortenbachlab.protocols.FortenbachLabProtocol
     % ====================================================================
     methods (Access = private)
 
-        function stopDisplayTimer(obj)
-            if ~isempty(obj.displayTimer)
-                try stop(obj.displayTimer);   catch, end
-                try delete(obj.displayTimer); catch, end
-                obj.displayTimer = [];
+        function stopScopeTimer(obj)
+            if ~isempty(obj.scopeTimer)
+                try stop(obj.scopeTimer);   catch, end
+                try delete(obj.scopeTimer); catch, end
+                obj.scopeTimer = [];
             end
         end
 
         function safeFigureClose(obj, figHandle)
-            % Called when the user clicks X on the figure.  Stops the
+            % Called when the user clicks X on the scope figure.  Stops the
             % timer and deletes the figure directly (bypasses Symphony's
             % CloseRequestFcn cascade that causes re-entrancy errors).
-            obj.stopDisplayTimer();
-            obj.modeFigure = [];
+            obj.stopScopeTimer();
+            obj.scopeFigure = [];
             try
                 set(figHandle, 'CloseRequestFcn', '');
                 delete(figHandle);
@@ -433,13 +402,14 @@ classdef CfPatchSealAndLeak < fortenbachlab.protocols.FortenbachLabProtocol
     end
 
     methods (Static, Access = private)
+
         function [scaledData, scaledUnits] = siAutoScale(data, units)
             %SIAUTOSCALE  Pick an SI prefix so axis tick labels stay readable.
             %   getData() returns numeric values in BASE SI units (e.g. Amps)
             %   but may label them with a prefixed string (e.g. 'pA').
             %   We strip any existing prefix so we always work from the
             %   base unit, then choose the right prefix for the magnitude.
-            scaledData = data;
+            scaledData  = data;
             scaledUnits = units;
             if isempty(data), return; end
             peak = max(abs(data(:)));
@@ -447,7 +417,7 @@ classdef CfPatchSealAndLeak < fortenbachlab.protocols.FortenbachLabProtocol
             if isempty(units), units = ''; end
 
             % Strip existing SI prefix to recover the base unit.
-            siPrefixes = {'p','n',char(181),'u','m','k','M','G','T'};
+            siPrefixes = {'p', 'n', char(181), 'u', 'm', 'k', 'M', 'G', 'T'};
             baseUnit = units;
             if numel(units) >= 2 && any(strcmp(units(1), siPrefixes))
                 baseUnit = units(2:end);
@@ -456,7 +426,7 @@ classdef CfPatchSealAndLeak < fortenbachlab.protocols.FortenbachLabProtocol
             % If values are already in a comfortable range, keep as-is
             % but label with the base unit (no misleading prefix).
             if peak >= 0.1 && peak < 1e4
-                scaledData = data;
+                scaledData  = data;
                 scaledUnits = baseUnit;
                 return;
             end
@@ -472,6 +442,7 @@ classdef CfPatchSealAndLeak < fortenbachlab.protocols.FortenbachLabProtocol
                 scaledData = data * 1e3;  scaledUnits = ['m' baseUnit];
             end
         end
+
     end
 
 end

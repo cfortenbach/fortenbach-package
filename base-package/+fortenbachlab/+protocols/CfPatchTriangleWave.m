@@ -18,7 +18,7 @@ classdef CfPatchTriangleWave < fortenbachlab.protocols.FortenbachLabProtocol
         amp                             % Output amplifier device name
 
         % Timing (ms)
-        preTime = 50
+        preTime = 100
         tailTime = 50
         period  = 200                   % full cycle (ms); will be enforced to divisible by 4 in samples
 
@@ -247,22 +247,29 @@ classdef CfPatchTriangleWave < fortenbachlab.protocols.FortenbachLabProtocol
                     return;
                 end
 
-                % Means across cycles
-                Iplus_pA  = mean(ups);    % Q1: +slope -> +C*s (plus small leak near 0 mV)
-                Iminus_pA = mean(downs);  % Q3: -slope -> -C*s (minus small leak near 0 mV)
+                % Means across cycles — getData() returns base SI (Amps)
+                Iplus_A  = mean(ups);    % Q1: +slope -> +C*s (Amps)
+                Iminus_A = mean(downs);  % Q3: -slope -> -C*s (Amps)
 
                 % Slope magnitude s = 4A/T (V/s) for V-clamp case
                 s_V_per_s = obj.computeSlope_V_per_s();
 
-                % Compute Cm (pF) from half-difference; Rm (GΩ) from half-sum (heuristic)
-                Cm_pF = (Iplus_pA - Iminus_pA) / (2 * s_V_per_s);       % pF since pA / (V/s) = pF
-                denom_pA = (Iplus_pA + Iminus_pA)/2;                    % pA (near 0 if centered)
-                if abs(denom_pA) > eps
-                    Rm_Ohms = ( (obj.amplitude/2) / 1000 ) / (denom_pA * 1e-12);  % (V)/(A) = Ω
+                % Compute Cm from half-difference: I(A) / (V/s) = Farads
+                Cm_F = (Iplus_A - Iminus_A) / (2 * s_V_per_s);
+                Cm_pF = Cm_F * 1e12;                                     % F -> pF
+
+                % Compute Rm from half-sum (heuristic leak estimate)
+                denom_A = (Iplus_A + Iminus_A) / 2;                      % A (near 0 if centered)
+                if abs(denom_A) > eps
+                    Rm_Ohms = ((obj.amplitude/2) / 1000) / denom_A;      % mV->V / A = Ohms
                     Rm_GOhm = Rm_Ohms / 1e9;
                 else
                     Rm_GOhm = NaN;
                 end
+
+                % Convert to display units for epoch metadata
+                Iplus_pA  = Iplus_A  * 1e12;   % A -> pA
+                Iminus_pA = Iminus_A * 1e12;   % A -> pA
 
                 % Attach to epoch metadata
                 epoch.addParameter('Cm_pF', Cm_pF);
@@ -274,7 +281,7 @@ classdef CfPatchTriangleWave < fortenbachlab.protocols.FortenbachLabProtocol
 
                 % Verbose readout
                 obj.safeLog('info', sprintf(['Cm/Rm (n=%d cycles): ', ...
-                    'Q1 I+=%.2f pA, Q3 I-=%.2f pA, s=%.3f V/s -> Cm=%.2f pF, Rm=%.2f GΩ (units=%s)'], ...
+                    'Q1 I+=%.2f pA, Q3 I-=%.2f pA, s=%.3f V/s -> Cm=%.2f pF, Rm=%.2f GOhm (units=%s)'], ...
                     usableCycles, Iplus_pA, Iminus_pA, s_V_per_s, Cm_pF, Rm_GOhm, obj.asciiUnits(units)));
 
             catch ME

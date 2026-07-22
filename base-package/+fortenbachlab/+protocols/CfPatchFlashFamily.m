@@ -92,49 +92,65 @@ classdef CfPatchFlashFamily < fortenbachlab.protocols.FortenbachLabProtocol
         function d = getPropertyDescriptor(obj, name)
             d = getPropertyDescriptor@fortenbachlab.protocols.FortenbachLabProtocol(obj, name);
 
+            switch name
+                case 'preTime'
+                    d.category = 'Stimulus';
+                    d.displayName = 'Pre Time (ms)';
+                case 'stimTime'
+                    d.category = 'Stimulus';
+                    d.displayName = 'Stim Time (ms)';
+                case 'tailTime'
+                    d.category = 'Stimulus';
+                    d.displayName = 'Tail Time (ms)';
+                case 'pulsesInFamily'
+                    d.category = 'Stimulus';
+                    d.displayName = 'Pulses In Family';
+                case 'led'
+                    d.category = 'Light';
+                case 'firstLightAmplitude'
+                    d.category = 'Light';
+                    d.displayName = 'First Flash Amplitude (V)';
+                    if obj.autoNDF
+                        d.isHidden = true;
+                    end
+                case 'lightMean'
+                    d.category = 'Light';
+                    d.displayName = 'Background Voltage (V)';
+                case 'ndf'
+                    d.category = 'Light';
+                    d.type = symphonyui.core.PropertyType('denserealdouble', 'scalar', ...
+                        {0, 0.5, 1.0, 2.0, 3.0, 4.0});
+                    if obj.autoNDF
+                        d.isHidden = true;
+                    end
+                case 'autoNDF'
+                    d.category = 'Light';
+                case 'startingNDF'
+                    d.category = 'Light';
+                    d.isHidden = true;
+                case 'flashIntensityMin'
+                    d.category = 'Light';
+                    d.type = symphonyui.core.PropertyType('char', 'row');
+                case 'flashIntensityMax'
+                    d.category = 'Light';
+                    d.type = symphonyui.core.PropertyType('char', 'row');
+                case 'backgroundIntensity'
+                    d.category = 'Light';
+                    d.type = symphonyui.core.PropertyType('char', 'row');
+                case 'amp'
+                    d.category = 'Amplifier';
+                case 'amp2'
+                    d.category = 'Amplifier';
+                case 'numberOfAverages'
+                    d.category = 'Acquisition';
+                    d.displayName = 'Number of Averages';
+                case 'interpulseInterval'
+                    d.category = 'Acquisition';
+                    d.displayName = 'Interpulse Interval (s)';
+            end
+
             if strncmp(name, 'amp2', 4) && numel(obj.rig.getDeviceNames('Amp')) < 2
                 d.isHidden = true;
-            end
-
-            % Consistent display names for LED properties.
-            if strcmp(name, 'firstLightAmplitude')
-                d.displayName = 'First Flash Amplitude';
-            end
-            if strcmp(name, 'lightMean')
-                d.displayName = 'Background Amplitude';
-            end
-
-            % When autoNDF is on: hide firstLightAmplitude, startingNDF, ndf
-            % (the pulse table is computed backward from 10V/NDF0).
-            % When autoNDF is off: hide startingNDF (legacy voltage doubling).
-            if obj.autoNDF
-                if strcmp(name, 'firstLightAmplitude') || strcmp(name, 'startingNDF') || strcmp(name, 'ndf')
-                    d.isHidden = true;
-                end
-            else
-                if strcmp(name, 'startingNDF')
-                    d.isHidden = true;
-                end
-            end
-
-            % Constrain NDF to valid filter wheel values.
-            if strcmp(name, 'ndf')
-                d.type = symphonyui.core.PropertyType('denserealdouble', 'scalar', ...
-                    {0, 0.5, 1.0, 2.0, 3.0, 4.0});
-            end
-
-            % Treat intensity fields as editable strings so scientific
-            % notation input (e.g. "1.5e15") is accepted and displayed.
-            % Setting min anchors the family at that end; setting max
-            % anchors at the other end. Last one set wins.
-            if strcmp(name, 'flashIntensityMin')
-                d.type = symphonyui.core.PropertyType('char', 'row');
-            end
-            if strcmp(name, 'flashIntensityMax')
-                d.type = symphonyui.core.PropertyType('char', 'row');
-            end
-            if strcmp(name, 'backgroundIntensity')
-                d.type = symphonyui.core.PropertyType('char', 'row');
             end
         end
 

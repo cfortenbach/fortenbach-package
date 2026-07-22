@@ -76,6 +76,37 @@ classdef CfPatchSpontaneousNoiseFft < fortenbachlab.protocols.FortenbachLabProto
             [obj.amp, obj.ampType] = obj.createDeviceNamesProperty('Amp');
         end
 
+        function d = getPropertyDescriptor(obj, name)
+            d = getPropertyDescriptor@fortenbachlab.protocols.FortenbachLabProtocol(obj, name);
+
+            switch name
+                case 'refreshRate'
+                    d.category = 'Stimulus';
+                    d.displayName = 'Refresh Rate (Hz)';
+                case 'recordTime'
+                    d.category = 'Stimulus';
+                    d.displayName = 'Record Time (ms)';
+                case 'amp'
+                    d.category = 'Amplifier';
+                case 'numberOfAverages'
+                    d.category = 'Acquisition';
+                    d.displayName = 'Number of Averages';
+                case 'interpulseInterval'
+                    d.category = 'Acquisition';
+                    d.displayName = 'Interpulse Interval (s)';
+                case 'welchWindowMs'
+                    d.category = 'Analysis';
+                    d.displayName = 'Welch Window (ms)';
+                case 'mainsFreqHz'
+                    d.category = 'Analysis';
+                    d.displayName = 'Mains Frequency (Hz)';
+                case {'subtractMean', 'detrendLinear', 'useWelch', 'welchOverlapFrac', ...
+                      'showLiveFigure', 'showBuiltIns', 'showGuides', 'numHarmonics', ...
+                      'rmsBands_Hz', 'showBandTableInConsole'}
+                    d.category = 'Analysis';
+            end
+        end
+
         function prepareRun(obj)
             prepareRun@fortenbachlab.protocols.FortenbachLabProtocol(obj);
 

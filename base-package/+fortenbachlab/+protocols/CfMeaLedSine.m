@@ -60,28 +60,53 @@ classdef CfMeaLedSine < fortenbachlab.protocols.FortenbachLabProtocol
         function d = getPropertyDescriptor(obj, name)
             d = getPropertyDescriptor@fortenbachlab.protocols.FortenbachLabProtocol(obj, name);
 
+            switch name
+                case 'preTime'
+                    d.category = 'Stimulus';
+                    d.displayName = 'Pre Time (ms)';
+                case 'stimTime'
+                    d.category = 'Stimulus';
+                    d.displayName = 'Stim Time (ms)';
+                case 'tailTime'
+                    d.category = 'Stimulus';
+                    d.displayName = 'Tail Time (ms)';
+                case 'frequency'
+                    d.category = 'Stimulus';
+                    d.displayName = 'Frequency (Hz)';
+                case 'phase'
+                    d.category = 'Stimulus';
+                    d.displayName = 'Phase (deg)';
+                case 'led'
+                    d.category = 'Light';
+                case 'lightAmplitude'
+                    d.category = 'Light';
+                    d.displayName = 'Flash Amplitude (V)';
+                case 'lightMean'
+                    d.category = 'Light';
+                    d.displayName = 'Background Voltage (V)';
+                case 'ndf'
+                    d.category = 'Light';
+                    d.type = symphonyui.core.PropertyType('denserealdouble', 'scalar', ...
+                        {0, 0.5, 1.0, 2.0, 3.0, 4.0});
+                case 'flashIntensity'
+                    d.category = 'Light';
+                    d.type = symphonyui.core.PropertyType('char', 'row');
+                case 'backgroundIntensity'
+                    d.category = 'Light';
+                case 'MEA_mean'
+                    d.isHidden = true;
+                case 'MEA_amp'
+                    d.isHidden = true;
+                case 'numberOfAverages'
+                    d.category = 'Acquisition';
+                    d.displayName = 'Number of Averages';
+                case 'interpulseInterval'
+                    d.category = 'Acquisition';
+                    d.displayName = 'Interpulse Interval (s)';
+            end
+
             if strncmp(name, 'amp2', 4) && numel(obj.rig.getDeviceNames('Amp')) < 2
                 d.isHidden = true;
-            end
-
-            % Consistent display names for LED properties.
-            if strcmp(name, 'lightAmplitude')
-                d.displayName = 'Flash Amplitude';
-            end
-            if strcmp(name, 'lightMean')
-                d.displayName = 'Background Amplitude';
-            end
-
-            % Constrain the ndf field to valid filter wheel values.
-            if strcmp(name, 'ndf')
-                d.type = symphonyui.core.PropertyType('denserealdouble', 'scalar', ...
-                    {0, 0.5, 1.0, 2.0, 3.0, 4.0});
-            end
-
-            % Treat flashIntensity as an editable string so scientific
-            % notation input (e.g. "1.5e15") is accepted and displayed.
-            if strcmp(name, 'flashIntensity')
-                d.type = symphonyui.core.PropertyType('char', 'row');
             end
         end
 
@@ -265,6 +290,10 @@ classdef CfMeaLedSine < fortenbachlab.protocols.FortenbachLabProtocol
 
         function s = get.backgroundIntensity(obj)
             try
+                if obj.lightMean == 0
+                    s = '0';
+                    return;
+                end
                 ndf = obj.ndf;
                 s = obj.getPhotonFluxString(obj.lightMean, ndf);
             catch

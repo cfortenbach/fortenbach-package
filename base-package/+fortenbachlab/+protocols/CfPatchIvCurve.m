@@ -61,11 +61,6 @@ classdef CfPatchIvCurve < fortenbachlab.protocols.FortenbachLabProtocol
                 d.isHidden = true;
             end
 
-            % Consistent display names for LED properties.
-            if strcmp(name, 'lightMean')
-                d.displayName = 'Background Amplitude';
-            end
-
             % Hide light-related fields when lightOn is false.
             if ~obj.lightOn && (strcmp(name, 'led') || strcmp(name, 'lightMean') ...
                     || strcmp(name, 'ndf') || strcmp(name, 'backgroundIntensity'))
@@ -82,6 +77,41 @@ classdef CfPatchIvCurve < fortenbachlab.protocols.FortenbachLabProtocol
             % notation input (e.g. "1.5e15") is accepted and displayed.
             if strcmp(name, 'backgroundIntensity')
                 d.type = symphonyui.core.PropertyType('char', 'row');
+            end
+
+            % Categories and display names.
+            switch name
+                case 'preTime'
+                    d.category = 'Stimulus';
+                    d.displayName = 'Pre Time (ms)';
+                case 'stimTime'
+                    d.category = 'Stimulus';
+                    d.displayName = 'Stim Time (ms)';
+                case 'tailTime'
+                    d.category = 'Stimulus';
+                    d.displayName = 'Tail Time (ms)';
+                case 'firstPulseSignal'
+                    d.category = 'Stimulus';
+                    d.displayName = 'First Pulse Signal (mV)';
+                case 'incrementPerPulse'
+                    d.category = 'Stimulus';
+                    d.displayName = 'Increment Per Pulse (mV)';
+                case 'pulsesInFamily'
+                    d.category = 'Stimulus';
+                    d.displayName = 'Pulses In Family';
+                case 'lightMean'
+                    d.category = 'Light';
+                    d.displayName = 'Background Voltage (V)';
+                case {'led', 'ndf', 'lightOn', 'backgroundIntensity'}
+                    d.category = 'Light';
+                case {'amp', 'amp2', 'mode', 'alternateMode'}
+                    d.category = 'Amplifier';
+                case 'numberOfAverages'
+                    d.category = 'Acquisition';
+                    d.displayName = 'Number of Averages';
+                case 'interpulseInterval'
+                    d.category = 'Acquisition';
+                    d.displayName = 'Interpulse Interval (s)';
             end
         end
 
@@ -386,6 +416,10 @@ classdef CfPatchIvCurve < fortenbachlab.protocols.FortenbachLabProtocol
         function s = get.backgroundIntensity(obj)
             if ~obj.lightOn
                 s = 'light off';
+                return;
+            end
+            if obj.lightMean == 0
+                s = '0';
                 return;
             end
             try

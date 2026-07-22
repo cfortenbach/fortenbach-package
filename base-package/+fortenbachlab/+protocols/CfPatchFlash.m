@@ -51,14 +51,6 @@ classdef CfPatchFlash < fortenbachlab.protocols.FortenbachLabProtocol
                 d.isHidden = true;
             end
 
-            % Consistent display names for LED properties.
-            if strcmp(name, 'lightAmplitude')
-                d.displayName = 'Flash Amplitude';
-            end
-            if strcmp(name, 'lightMean')
-                d.displayName = 'Background Amplitude';
-            end
-
             % Constrain NDF to valid filter wheel values.
             if strcmp(name, 'ndf')
                 d.type = symphonyui.core.PropertyType('denserealdouble', 'scalar', ...
@@ -69,6 +61,50 @@ classdef CfPatchFlash < fortenbachlab.protocols.FortenbachLabProtocol
             % notation input (e.g. "1.5e15") is accepted and displayed.
             if strcmp(name, 'flashIntensity') || strcmp(name, 'backgroundIntensity')
                 d.type = symphonyui.core.PropertyType('char', 'row');
+            end
+
+            switch name
+                case 'preTime'
+                    d.category = 'Stimulus';
+                    d.displayName = 'Pre Time (ms)';
+                case 'stimTime'
+                    d.category = 'Stimulus';
+                    d.displayName = 'Stim Time (ms)';
+                case 'tailTime'
+                    d.category = 'Stimulus';
+                    d.displayName = 'Tail Time (ms)';
+                case 'led'
+                    d.category = 'Light';
+                case 'lightAmplitude'
+                    d.category = 'Light';
+                    d.displayName = 'Flash Amplitude (V)';
+                case 'lightMean'
+                    d.category = 'Light';
+                    d.displayName = 'Background Voltage (V)';
+                case 'ndf'
+                    d.category = 'Light';
+                case 'flashIntensity'
+                    d.category = 'Light';
+                case 'backgroundIntensity'
+                    d.category = 'Light';
+                case 'amp'
+                    d.category = 'Amplifier';
+                case 'amp2'
+                    d.category = 'Amplifier';
+                case 'numberOfAverages'
+                    d.category = 'Acquisition';
+                    d.displayName = 'Number of Averages';
+                case 'interpulseInterval'
+                    d.category = 'Acquisition';
+                    d.displayName = 'Interpulse Interval (s)';
+                case 'showOnsetFigure'
+                    d.category = 'Analysis';
+                case 'onsetPrePad'
+                    d.category = 'Analysis';
+                    d.displayName = 'Onset Pre-Pad (ms)';
+                case 'onsetPostPad'
+                    d.category = 'Analysis';
+                    d.displayName = 'Onset Post-Pad (ms)';
             end
         end
         
@@ -289,6 +325,7 @@ classdef CfPatchFlash < fortenbachlab.protocols.FortenbachLabProtocol
 
         function s = get.backgroundIntensity(obj)
             try
+                if obj.lightMean == 0; s = '0'; return; end
                 f = obj.getPhotonFlux(obj.lightMean, obj.ndf);
                 if isempty(f) || ~isfinite(f) || f == 0
                     s = '0';

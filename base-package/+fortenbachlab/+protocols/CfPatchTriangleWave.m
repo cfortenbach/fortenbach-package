@@ -55,6 +55,44 @@ classdef CfPatchTriangleWave < fortenbachlab.protocols.FortenbachLabProtocol
             [obj.amp, obj.ampType] = obj.createDeviceNamesProperty('Amp');
         end
 
+        function d = getPropertyDescriptor(obj, name)
+            d = getPropertyDescriptor@fortenbachlab.protocols.FortenbachLabProtocol(obj, name);
+
+            switch name
+                case 'preTime'
+                    d.category = 'Stimulus';
+                    d.displayName = 'Pre Time (ms)';
+                case 'stimTime'
+                    d.category = 'Stimulus';
+                    d.displayName = 'Stim Time (ms)';
+                case 'tailTime'
+                    d.category = 'Stimulus';
+                    d.displayName = 'Tail Time (ms)';
+                case 'amplitude'
+                    d.category = 'Stimulus';
+                    d.displayName = 'Amplitude (mV)';
+                case 'offset'
+                    d.category = 'Stimulus';
+                    d.displayName = 'Offset (mV)';
+                case 'period'
+                    d.category = 'Stimulus';
+                    d.displayName = 'Period (ms)';
+                case 'numberOfCycles'
+                    d.category = 'Stimulus';
+                    d.displayName = 'Number of Cycles';
+                case 'amp'
+                    d.category = 'Amplifier';
+                case 'amp2'
+                    d.category = 'Amplifier';
+                case 'numberOfAverages'
+                    d.category = 'Acquisition';
+                    d.displayName = 'Number of Averages';
+                case 'interpulseInterval'
+                    d.category = 'Acquisition';
+                    d.displayName = 'Interpulse Interval (s)';
+            end
+        end
+
         function p = getPreview(obj, panel)
             p = symphonyui.builtin.previews.StimuliPreview(panel, @()obj.createAmpStimulus());
         end

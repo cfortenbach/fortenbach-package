@@ -68,14 +68,6 @@ classdef CfPatchFlashIvCurve < fortenbachlab.protocols.FortenbachLabProtocol
                 d.isHidden = true;
             end
 
-            % Consistent display names for LED properties.
-            if strcmp(name, 'flashAmplitude')
-                d.displayName = 'Flash Amplitude';
-            end
-            if strcmp(name, 'lightBackground')
-                d.displayName = 'Background Amplitude';
-            end
-
             % Constrain NDF to valid filter wheel values.
             if strcmp(name, 'ndf')
                 d.type = symphonyui.core.PropertyType('denserealdouble', 'scalar', ...
@@ -86,6 +78,53 @@ classdef CfPatchFlashIvCurve < fortenbachlab.protocols.FortenbachLabProtocol
             % notation input (e.g. "1.5e15") is accepted and displayed.
             if strcmp(name, 'backgroundIntensity')
                 d.type = symphonyui.core.PropertyType('char', 'row');
+            end
+
+            % Categories and display names.
+            switch name
+                case 'preTime'
+                    d.category = 'Stimulus';
+                    d.displayName = 'Pre Time (ms)';
+                case 'stimTime'
+                    d.category = 'Stimulus';
+                    d.displayName = 'Stim Time (ms)';
+                case 'tailTime'
+                    d.category = 'Stimulus';
+                    d.displayName = 'Tail Time (ms)';
+                case 'flashTime'
+                    d.category = 'Stimulus';
+                    d.displayName = 'Flash Time (ms)';
+                case 'flashDelay'
+                    d.category = 'Stimulus';
+                    d.displayName = 'Flash Delay (ms)';
+                case 'firstPulseSignal'
+                    d.category = 'Stimulus';
+                    d.displayName = 'First Pulse Signal (mV)';
+                case 'incrementPerPulse'
+                    d.category = 'Stimulus';
+                    d.displayName = 'Increment Per Pulse (mV)';
+                case 'pulsesInFamily'
+                    d.category = 'Stimulus';
+                    d.displayName = 'Pulses In Family';
+                case 'chargeIntegrationTime'
+                    d.category = 'Stimulus';
+                    d.displayName = 'Charge Integration Time (ms)';
+                case 'flashAmplitude'
+                    d.category = 'Light';
+                    d.displayName = 'Flash Amplitude (V)';
+                case 'lightBackground'
+                    d.category = 'Light';
+                    d.displayName = 'Background Voltage (V)';
+                case {'led', 'ndf', 'flashIntensity', 'backgroundIntensity'}
+                    d.category = 'Light';
+                case {'amp', 'amp2'}
+                    d.category = 'Amplifier';
+                case 'numberOfAverages'
+                    d.category = 'Acquisition';
+                    d.displayName = 'Number of Averages';
+                case 'interpulseInterval'
+                    d.category = 'Acquisition';
+                    d.displayName = 'Interpulse Interval (s)';
             end
         end
 
@@ -406,6 +445,10 @@ classdef CfPatchFlashIvCurve < fortenbachlab.protocols.FortenbachLabProtocol
         end
 
         function s = get.backgroundIntensity(obj)
+            if obj.lightBackground == 0
+                s = '0';
+                return;
+            end
             try
                 f = obj.getPhotonFlux(obj.lightBackground, obj.ndf);
                 if isempty(f) || ~isfinite(f) || f == 0

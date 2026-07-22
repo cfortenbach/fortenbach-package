@@ -33,7 +33,35 @@ classdef CfPatchStep < fortenbachlab.protocols.FortenbachLabProtocol
         
         function d = getPropertyDescriptor(obj, name)
             d = getPropertyDescriptor@fortenbachlab.protocols.FortenbachLabProtocol(obj, name);
-            
+
+            switch name
+                case 'preTime'
+                    d.category = 'Stimulus';
+                    d.displayName = 'Pre Time (ms)';
+                case 'stimTime'
+                    d.category = 'Stimulus';
+                    d.displayName = 'Stim Time (ms)';
+                case 'tailTime'
+                    d.category = 'Stimulus';
+                    d.displayName = 'Tail Time (ms)';
+                case 'pulseAmplitude'
+                    d.category = 'Stimulus';
+                    d.displayName = 'Pulse Amplitude (mV)';
+                case 'amp'
+                    d.category = 'Amplifier';
+                case 'amp2'
+                    d.category = 'Amplifier';
+                case 'amp2PulseAmplitude'
+                    d.category = 'Amplifier';
+                    d.displayName = 'Amp2 Pulse Amplitude (mV)';
+                case 'numberOfAverages'
+                    d.category = 'Acquisition';
+                    d.displayName = 'Number of Averages';
+                case 'interpulseInterval'
+                    d.category = 'Acquisition';
+                    d.displayName = 'Interpulse Interval (s)';
+            end
+
             if strncmp(name, 'amp2', 4) && numel(obj.rig.getDeviceNames('Amp')) < 2
                 d.isHidden = true;
             end

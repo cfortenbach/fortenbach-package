@@ -71,11 +71,6 @@ classdef CfPatchLedNoise < fortenbachlab.protocols.FortenbachLabProtocol
                 d.isHidden = true;
             end
 
-            % Consistent display names for LED properties.
-            if strcmp(name, 'lightMean')
-                d.displayName = 'Background Amplitude';
-            end
-
             % Constrain NDF to valid filter wheel values.
             if strcmp(name, 'ndf')
                 d.type = symphonyui.core.PropertyType('denserealdouble', 'scalar', ...
@@ -86,6 +81,45 @@ classdef CfPatchLedNoise < fortenbachlab.protocols.FortenbachLabProtocol
             % notation input (e.g. "1.5e15") is accepted and displayed.
             if strcmp(name, 'backgroundIntensity')
                 d.type = symphonyui.core.PropertyType('char', 'row');
+            end
+
+            switch name
+                case 'preTime'
+                    d.category = 'Stimulus';
+                    d.displayName = 'Pre Time (ms)';
+                case 'stimTime'
+                    d.category = 'Stimulus';
+                    d.displayName = 'Stim Time (ms)';
+                case 'tailTime'
+                    d.category = 'Stimulus';
+                    d.displayName = 'Tail Time (ms)';
+                case 'frequencyCutoff'
+                    d.category = 'Stimulus';
+                    d.displayName = 'Frequency Cutoff (Hz)';
+                case 'startStdv'
+                    d.category = 'Stimulus';
+                    d.displayName = 'Starting Std Dev (V)';
+                case 'led'
+                    d.category = 'Light';
+                case 'lightMean'
+                    d.category = 'Light';
+                    d.displayName = 'Background Voltage (V)';
+                case 'ndf'
+                    d.category = 'Light';
+                case 'backgroundIntensity'
+                    d.category = 'Light';
+                case 'amp'
+                    d.category = 'Amplifier';
+                case 'amp2'
+                    d.category = 'Amplifier';
+                case 'numberOfAverages'
+                    d.category = 'Acquisition';
+                    d.displayName = 'Number of Averages';
+                case 'interpulseInterval'
+                    d.category = 'Acquisition';
+                    d.displayName = 'Interpulse Interval (s)';
+                case 'showPowerSpectrum'
+                    d.category = 'Analysis';
             end
         end
 
@@ -335,6 +369,7 @@ classdef CfPatchLedNoise < fortenbachlab.protocols.FortenbachLabProtocol
 
         function s = get.backgroundIntensity(obj)
             try
+                if obj.lightMean == 0; s = '0'; return; end
                 f = obj.getPhotonFlux(obj.lightMean, obj.ndf);
                 if isempty(f) || ~isfinite(f) || f == 0
                     s = '0';

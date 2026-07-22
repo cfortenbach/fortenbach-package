@@ -41,6 +41,23 @@ classdef CfPatchPassiveRecord < fortenbachlab.protocols.FortenbachLabProtocol
 
         function d = getPropertyDescriptor(obj, name)
             d = getPropertyDescriptor@fortenbachlab.protocols.FortenbachLabProtocol(obj, name);
+
+            switch name
+                case 'recordTime'
+                    d.category = 'Stimulus';
+                    d.displayName = 'Record Time (ms)';
+                case 'amp'
+                    d.category = 'Amplifier';
+                case 'amp2'
+                    d.category = 'Amplifier';
+                case 'numberOfAverages'
+                    d.category = 'Acquisition';
+                    d.displayName = 'Number of Averages';
+                case 'interpulseInterval'
+                    d.category = 'Acquisition';
+                    d.displayName = 'Interpulse Interval (s)';
+            end
+
             if strncmp(name, 'amp2', 4) && numel(obj.rig.getDeviceNames('Amp')) < 2
                 d.isHidden = true;
             end

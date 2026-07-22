@@ -127,6 +127,7 @@ classdef CfPatchIvCurve < fortenbachlab.protocols.FortenbachLabProtocol
             obj.ivFigure = obj.showFigure('symphonyui.builtin.figures.CustomFigure', @obj.updateIvFigure);
             f = obj.ivFigure.getFigureHandle();
             set(f, 'Name', 'IV Curve');
+            delete(findall(f, 'Type', 'axes'));  % Remove axes from prior run
             obj.ivFigure.userData.ax = axes('Parent', f);
             xlabel(obj.ivFigure.userData.ax, 'Membrane Potential (mV)');
             ylabel(obj.ivFigure.userData.ax, 'Current (pA)');
@@ -308,12 +309,11 @@ classdef CfPatchIvCurve < fortenbachlab.protocols.FortenbachLabProtocol
                 prePts  = round(obj.preTime  / 1e3 * sr);
                 stimPts = round(obj.stimTime / 1e3 * sr);
 
-                % Baseline-subtracted steady-state current (second half of
-                % stimulus window).  Values are in base SI (Amps).
-                baseline    = mean(quantities(1:prePts));
+                % Absolute steady-state current (second half of stimulus
+                % window).  Values are in base SI (Amps).
                 ssStart     = prePts + round(stimPts * 0.5);
                 ssEnd       = prePts + stimPts;
-                steadyState = mean(quantities(ssStart:ssEnd)) - baseline;
+                steadyState = mean(quantities(ssStart:ssEnd));
 
                 % Accumulate into the map (raw base-SI values).
                 ivData = figureHandler.userData.ivData;
@@ -339,8 +339,7 @@ classdef CfPatchIvCurve < fortenbachlab.protocols.FortenbachLabProtocol
                 end
 
                 % Auto-scale current values for display.
-                [means, currentUnits] = obj.siAutoScale(means, '');
-                if isempty(currentUnits), currentUnits = 'A'; end
+                [means, currentUnits] = obj.siAutoScale(means, 'A');
                 % Scale SEs by the same factor.
                 if ~isempty(ses) && ~isempty(means)
                     rawPeak = max(abs(ivData(voltages(1))));

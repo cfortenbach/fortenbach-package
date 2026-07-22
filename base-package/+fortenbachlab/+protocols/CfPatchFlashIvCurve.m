@@ -136,6 +136,7 @@ classdef CfPatchFlashIvCurve < fortenbachlab.protocols.FortenbachLabProtocol
             obj.peakIvFigure = obj.showFigure('symphonyui.builtin.figures.CustomFigure', @obj.updatePeakIvFigure);
             f1 = obj.peakIvFigure.getFigureHandle();
             set(f1, 'Name', 'Flash Peak IV');
+            delete(findall(f1, 'Type', 'axes'));  % Remove axes from prior run
             obj.peakIvFigure.userData.ax = axes('Parent', f1);
             xlabel(obj.peakIvFigure.userData.ax, 'Holding Potential (mV)');
             ylabel(obj.peakIvFigure.userData.ax, 'Peak Current');
@@ -148,6 +149,7 @@ classdef CfPatchFlashIvCurve < fortenbachlab.protocols.FortenbachLabProtocol
             obj.chargeIvFigure = obj.showFigure('symphonyui.builtin.figures.CustomFigure', @obj.updateChargeIvFigure);
             f2 = obj.chargeIvFigure.getFigureHandle();
             set(f2, 'Name', 'Flash Charge IV');
+            delete(findall(f2, 'Type', 'axes'));  % Remove axes from prior run
             obj.chargeIvFigure.userData.ax = axes('Parent', f2);
             xlabel(obj.chargeIvFigure.userData.ax, 'Holding Potential (mV)');
             ylabel(obj.chargeIvFigure.userData.ax, 'Charge');

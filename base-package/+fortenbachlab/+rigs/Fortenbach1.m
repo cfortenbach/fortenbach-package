@@ -8,8 +8,15 @@ classdef Fortenbach1 < symphonyui.core.descriptions.RigDescription
             import symphonyui.core.*;
             import edu.washington.*;
 
-            % Add the NiDAQ A/D board.
-            daq = NiDaqController();
+            % Add the NiDAQ A/D board. Try the real NI hardware first and
+            % fall back to the NI simulation controller if none is found.
+            try
+                daq = NiDaqController();
+            catch
+                daq = NiSimulationDaqController();
+                warning('Fortenbach1:noNIDAQ', ...
+                    'No NI device found - using NI simulation controller.');
+            end
             obj.daqController = daq;
             
             % Add the Multiclamp device (demo mode).

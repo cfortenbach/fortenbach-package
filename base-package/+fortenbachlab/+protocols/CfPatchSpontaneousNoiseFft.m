@@ -104,6 +104,8 @@ classdef CfPatchSpontaneousNoiseFft < fortenbachlab.protocols.FortenbachLabProto
                       'showLiveFigure', 'showBuiltIns', 'showGuides', 'numHarmonics', ...
                       'rmsBands_Hz', 'showBandTableInConsole'}
                     d.category = 'Analysis';
+                case 'objective'
+                    d.isHidden = true;
             end
         end
 

@@ -10,6 +10,14 @@ classdef (Abstract) FortenbachLabProtocol < symphonyui.core.Protocol
         startedRun
     end
 
+    properties
+        objective = '60x'  % Microscope objective (appears in property grid)
+    end
+
+    properties (Hidden)
+        objectiveType = symphonyui.core.PropertyType('char', 'row', {'4x', '10x', '60x'})
+    end
+
     properties (Hidden, Transient)
         ledCalibration  % fortenbachlab.util.LEDCalibration instance (shared)
     end
@@ -49,6 +57,16 @@ classdef (Abstract) FortenbachLabProtocol < symphonyui.core.Protocol
                 for k = 1:numel(amps)
                     device = obj.rig.getDevice(amps{k});
                     prefix = amps{k};  % e.g. 'Amp1'
+
+                    % Save holding potential (device background) set via
+                    % the HoldingPotentialModule or BackgroundControl.
+                    try
+                        bg = device.background;
+                        epoch.addParameter([prefix '_holdingPotential'], bg.quantity);
+                        epoch.addParameter([prefix '_holdingPotentialUnits'], bg.displayUnits);
+                    catch
+                    end
+
                     try
                         params = obj.readMultiClampParameters(device);
 
@@ -67,6 +85,23 @@ classdef (Abstract) FortenbachLabProtocol < symphonyui.core.Protocol
                         epoch.addParameter([prefix '_membraneCapacitance_pF'], params.membraneCapacitance * 1e12);
                         epoch.addParameter([prefix '_seriesResistance_MOhm'], params.seriesResistance / 1e6);
                         epoch.addParameter([prefix '_lpfCutoff_Hz'], params.lpfCutoff);
+                    catch
+                    end
+                end
+            catch
+            end
+
+            % Save calibration and objective metadata.
+            try
+                epoch.addParameter('objective', obj.objective);
+                if ~isempty(obj.ledCalibration)
+                    f = obj.ledCalibration.getCalibrationFile();
+                    if ~isempty(f)
+                        [~, fname, ext] = fileparts(f);
+                        epoch.addParameter('calibrationFile', [fname ext]);
+                    end
+                    try
+                        epoch.addParameter('spotDiameter_mm', obj.ledCalibration.getSpotDiameter(obj.objective));
                     catch
                     end
                 end
@@ -286,8 +321,8 @@ classdef (Abstract) FortenbachLabProtocol < symphonyui.core.Protocol
             if isempty(obj.ledCalibration)
                 try
                     obj.ledCalibration = fortenbachlab.util.LEDCalibration();
-                catch
-                    % Calibration file not available; leave empty.
+                catch ex
+                    fprintf(2, 'ensureCalibrationLoaded FAILED: %s\n', ex.message);
                 end
             end
         end
@@ -301,7 +336,7 @@ classdef (Abstract) FortenbachLabProtocol < symphonyui.core.Protocol
                 flux = NaN;
                 return;
             end
-            flux = obj.ledCalibration.voltageToFlux(voltage, ndf);
+            flux = obj.ledCalibration.voltageToFlux(voltage, ndf, obj.objective);
         end
 
         function str = getPhotonFluxString(obj, voltage, ndf)
@@ -311,7 +346,7 @@ classdef (Abstract) FortenbachLabProtocol < symphonyui.core.Protocol
                 str = 'calibration not loaded';
                 return;
             end
-            str = obj.ledCalibration.fluxString(voltage, ndf);
+            str = obj.ledCalibration.fluxString(voltage, ndf, obj.objective);
         end
 
         function stim = createStimulusFromArray(obj, data, units)
@@ -507,6 +542,16 @@ classdef (Abstract) FortenbachLabProtocol < symphonyui.core.Protocol
                 ['Cell health metrics DISABLED: preTime (%g ms) is below ' ...
                  'the minimum (%g ms). Increase preTime to enable Rinput tracking.'], ...
                 obj.preTime, obj.MIN_PRETIME_CELL_HEALTH);
+        end
+
+        function d = getPropertyDescriptor(obj, name)
+            d = getPropertyDescriptor@symphonyui.core.Protocol(obj, name);
+            switch name
+                case 'objective'
+                    d.category = 'Light';
+                    d.displayName = 'Objective';
+                    d.type = symphonyui.core.PropertyType('char', 'row', {'4x', '10x', '60x'});
+            end
         end
 
     end

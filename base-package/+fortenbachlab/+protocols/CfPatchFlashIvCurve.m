@@ -481,7 +481,7 @@ classdef CfPatchFlashIvCurve < fortenbachlab.protocols.FortenbachLabProtocol
                     'LED calibration not loaded; cannot set backgroundIntensity.');
                 return;
             end
-            vMean = obj.ledCalibration.fluxToVoltage(targetFlux, obj.ndf);
+            vMean = obj.ledCalibration.fluxToVoltage(targetFlux, obj.ndf, obj.objective);
             if isnan(vMean), vMean = 10; end
             if vMean < 0, vMean = 0; end
             obj.lightBackground = vMean;

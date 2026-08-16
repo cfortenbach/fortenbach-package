@@ -60,6 +60,8 @@ classdef CfPatchStep < fortenbachlab.protocols.FortenbachLabProtocol
                 case 'interpulseInterval'
                     d.category = 'Acquisition';
                     d.displayName = 'Interpulse Interval (s)';
+                case 'objective'
+                    d.isHidden = true;
             end
 
             if strncmp(name, 'amp2', 4) && numel(obj.rig.getDeviceNames('Amp')) < 2

@@ -90,6 +90,8 @@ classdef CfPatchTriangleWave < fortenbachlab.protocols.FortenbachLabProtocol
                 case 'interpulseInterval'
                     d.category = 'Acquisition';
                     d.displayName = 'Interpulse Interval (s)';
+                case 'objective'
+                    d.isHidden = true;
             end
         end
 

@@ -37,6 +37,10 @@ classdef CfMeaLedSine < fortenbachlab.protocols.FortenbachLabProtocol
 
     methods
 
+        function obj = CfMeaLedSine()
+            obj.objective = '4x';
+        end
+
         % MEA scaling: 50 mV command -> 1 mV step; max MEA input 4 V (factor of 8).
         function v = get.MEA_mean(obj)
             v = obj.lightMean * 1000 * 0.4 / 50;
@@ -277,7 +281,7 @@ classdef CfMeaLedSine < fortenbachlab.protocols.FortenbachLabProtocol
                     'LED calibration not loaded; cannot set flashIntensity.');
                 return;
             end
-            vPeak = obj.ledCalibration.fluxToVoltage(targetFlux, obj.ndf);
+            vPeak = obj.ledCalibration.fluxToVoltage(targetFlux, obj.ndf, obj.objective);
             if isnan(vPeak)
                 vPeak = 10;  % clamp to max
             end

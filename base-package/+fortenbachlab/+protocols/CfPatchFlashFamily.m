@@ -299,7 +299,7 @@ classdef CfPatchFlashFamily < fortenbachlab.protocols.FortenbachLabProtocol
                     voltages(i) = v;
                     ndfs(i) = ndf;
                     if ~isempty(obj.ledCalibration)
-                        fluxes(i) = obj.ledCalibration.voltageToFlux(obj.lightMean + v, ndf);
+                        fluxes(i) = obj.ledCalibration.voltageToFlux(obj.lightMean + v, ndf, obj.objective);
                     end
                 end
                 return;
@@ -322,7 +322,7 @@ classdef CfPatchFlashFamily < fortenbachlab.protocols.FortenbachLabProtocol
                 end
             else
                 % Default: maximum is MAX_LED_VOLTAGE at NDF 0.
-                maxFlux = cal.voltageToFlux(obj.lightMean + obj.MAX_LED_VOLTAGE, 0);
+                maxFlux = cal.voltageToFlux(obj.lightMean + obj.MAX_LED_VOLTAGE, 0, obj.objective);
                 for i = 1:n
                     targetFluxes(i) = maxFlux / 2^(n - i);
                 end
@@ -335,7 +335,7 @@ classdef CfPatchFlashFamily < fortenbachlab.protocols.FortenbachLabProtocol
             warnState = warning('off', 'LEDCalibration:exceedsMax');
             for ndfIdx = numel(obj.NDF_VALUES):-1:1
                 candidateNdf = obj.NDF_VALUES(ndfIdx);
-                vTotal = cal.fluxToVoltage(targetFluxes(1), candidateNdf);
+                vTotal = cal.fluxToVoltage(targetFluxes(1), candidateNdf, obj.objective);
                 amp_ = vTotal - obj.lightMean;
                 if ~isnan(vTotal) && amp_ >= obj.MIN_LED_VOLTAGE ...
                         && amp_ <= obj.MAX_LED_VOLTAGE
@@ -350,7 +350,7 @@ classdef CfPatchFlashFamily < fortenbachlab.protocols.FortenbachLabProtocol
             % when voltage would exceed MAX_LED_VOLTAGE.
             for i = 1:n
                 warnState = warning('off', 'LEDCalibration:exceedsMax');
-                vTotal = cal.fluxToVoltage(targetFluxes(i), currentNdf);
+                vTotal = cal.fluxToVoltage(targetFluxes(i), currentNdf, obj.objective);
                 warning(warnState);
                 amplitude = vTotal - obj.lightMean;
 
@@ -371,7 +371,7 @@ classdef CfPatchFlashFamily < fortenbachlab.protocols.FortenbachLabProtocol
                     while nIdx > 1
                         nIdx = nIdx - 1;
                         cNdf = obj.NDF_VALUES(nIdx);
-                        vTotal = cal.fluxToVoltage(targetFluxes(i), cNdf);
+                        vTotal = cal.fluxToVoltage(targetFluxes(i), cNdf, obj.objective);
                         amplitude = vTotal - obj.lightMean;
                         if ~isnan(vTotal) && amplitude >= obj.MIN_LED_VOLTAGE ...
                                 && amplitude <= obj.MAX_LED_VOLTAGE
@@ -397,7 +397,7 @@ classdef CfPatchFlashFamily < fortenbachlab.protocols.FortenbachLabProtocol
                     while nIdx < numel(obj.NDF_VALUES)
                         nIdx = nIdx + 1;
                         cNdf = obj.NDF_VALUES(nIdx);
-                        vTotal = cal.fluxToVoltage(targetFluxes(i), cNdf);
+                        vTotal = cal.fluxToVoltage(targetFluxes(i), cNdf, obj.objective);
                         amplitude = vTotal - obj.lightMean;
                         if ~isnan(vTotal) && amplitude >= obj.MIN_LED_VOLTAGE
                             currentNdf = cNdf;
@@ -417,7 +417,7 @@ classdef CfPatchFlashFamily < fortenbachlab.protocols.FortenbachLabProtocol
                     ndfs(i)     = currentNdf;
                 end
 
-                fluxes(i) = cal.voltageToFlux(obj.lightMean + voltages(i), ndfs(i));
+                fluxes(i) = cal.voltageToFlux(obj.lightMean + voltages(i), ndfs(i), obj.objective);
             end
         end
 
@@ -675,7 +675,7 @@ classdef CfPatchFlashFamily < fortenbachlab.protocols.FortenbachLabProtocol
             obj.ensureCalibrationLoaded();
             if isempty(obj.ledCalibration); return; end
             warnState = warning('off', 'LEDCalibration:exceedsMax');
-            vPeak = obj.ledCalibration.fluxToVoltage(targetFlux, obj.ndf);
+            vPeak = obj.ledCalibration.fluxToVoltage(targetFlux, obj.ndf, obj.objective);
             warning(warnState);
             if isnan(vPeak); vPeak = 10.239; end
             newAmplitude = max(0, vPeak - obj.lightMean);
@@ -726,7 +726,7 @@ classdef CfPatchFlashFamily < fortenbachlab.protocols.FortenbachLabProtocol
             obj.ensureCalibrationLoaded();
             if isempty(obj.ledCalibration); return; end
             warnState = warning('off', 'LEDCalibration:exceedsMax');
-            vPeak = obj.ledCalibration.fluxToVoltage(targetFlux, obj.ndf);
+            vPeak = obj.ledCalibration.fluxToVoltage(targetFlux, obj.ndf, obj.objective);
             warning(warnState);
             if isnan(vPeak); vPeak = 10.239; end
             maxAmplitude = max(0, vPeak - obj.lightMean);
@@ -771,7 +771,7 @@ classdef CfPatchFlashFamily < fortenbachlab.protocols.FortenbachLabProtocol
                 ndf = obj.ndf;
             end
             warnState = warning('off', 'LEDCalibration:exceedsMax');
-            vTotal = obj.ledCalibration.fluxToVoltage(targetFlux, ndf);
+            vTotal = obj.ledCalibration.fluxToVoltage(targetFlux, ndf, obj.objective);
             warning(warnState);
             if isnan(vTotal) || vTotal < 0; return; end
             obj.lightMean = vTotal;

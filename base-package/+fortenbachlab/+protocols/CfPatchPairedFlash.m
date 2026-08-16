@@ -505,7 +505,7 @@ classdef CfPatchPairedFlash < fortenbachlab.protocols.FortenbachLabProtocol
                     'LED calibration not loaded; cannot set flashIntensity.');
                 return;
             end
-            vPeak = obj.ledCalibration.fluxToVoltage(targetFlux, obj.ndf);
+            vPeak = obj.ledCalibration.fluxToVoltage(targetFlux, obj.ndf, obj.objective);
             if isnan(vPeak), vPeak = 10; end
             newAmplitude = vPeak - obj.lightMean;
             if newAmplitude < 0, newAmplitude = 0; end
@@ -530,7 +530,7 @@ classdef CfPatchPairedFlash < fortenbachlab.protocols.FortenbachLabProtocol
                     'LED calibration not loaded; cannot set backgroundIntensity.');
                 return;
             end
-            vMean = obj.ledCalibration.fluxToVoltage(targetFlux, obj.ndf);
+            vMean = obj.ledCalibration.fluxToVoltage(targetFlux, obj.ndf, obj.objective);
             if isnan(vMean), vMean = 10; end
             if vMean < 0, vMean = 0; end
             obj.lightMean = vMean;

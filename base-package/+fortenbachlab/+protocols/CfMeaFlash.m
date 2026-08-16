@@ -34,7 +34,11 @@ classdef CfMeaFlash < fortenbachlab.protocols.FortenbachLabProtocol
     end
     
     methods
-        
+
+        function obj = CfMeaFlash()
+            obj.objective = '4x';
+        end
+
         % When delivering voltage steps, 50 mV command results in 1 mV voltage step and max input voltage of MEA is 4 volts.
         function pulseAmplitudeCut = get.pulseAmplitude(obj)
             pulseAmplitudeCut = obj.lightAmplitude * 1000 * 0.4 / 50;
@@ -276,7 +280,7 @@ classdef CfMeaFlash < fortenbachlab.protocols.FortenbachLabProtocol
                 return;
             end
             % Compute voltage at the light peak (background + amplitude).
-            vPeak = obj.ledCalibration.fluxToVoltage(targetFlux, obj.ndf);
+            vPeak = obj.ledCalibration.fluxToVoltage(targetFlux, obj.ndf, obj.objective);
             if isnan(vPeak)
                 vPeak = 10;  % clamp to max
             end

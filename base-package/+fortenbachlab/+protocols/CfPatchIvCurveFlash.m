@@ -1,4 +1,4 @@
-classdef CfPatchFlashIvCurve < fortenbachlab.protocols.FortenbachLabProtocol
+classdef CfPatchIvCurveFlash < fortenbachlab.protocols.FortenbachLabProtocol
     % IV curve with a timed light flash delivered during each voltage step.
     %
     % Steps the amplifier across a range of holding potentials (identical to
@@ -26,7 +26,7 @@ classdef CfPatchFlashIvCurve < fortenbachlab.protocols.FortenbachLabProtocol
         flashTime = 10                  % Flash duration (ms)
         firstPulseSignal = -80          % First pulse signal value (mV or pA depending on amp mode)
         incrementPerPulse = 10          % Increment value per each pulse (mV or pA depending on amp mode)
-        pulsesInFamily = uint16(11)     % Number of pulses in family
+        pulsesInFamily = uint16(15)     % Number of pulses in family (-80 to +60 mV in 10 mV steps)
         numberOfAverages = uint16(5)    % Number of families
         interpulseInterval = 0          % Duration between pulses (s)
         flashAmplitude = 5              % Flash amplitude: LED voltage above background (V)
@@ -208,7 +208,7 @@ classdef CfPatchFlashIvCurve < fortenbachlab.protocols.FortenbachLabProtocol
                     end
                 end
             catch e
-                warning('CfPatchFlashIvCurve:setNDFFailed', ...
+                warning('CfPatchIvCurveFlash:setNDFFailed', ...
                     'Failed to set filter wheel to NDF %g: %s', obj.ndf, e.message);
             end
             obj.setLedBackground(obj.led, obj.lightBackground);
@@ -355,7 +355,7 @@ classdef CfPatchFlashIvCurve < fortenbachlab.protocols.FortenbachLabProtocol
                 ledDevice.background = symphonyui.core.Measurement(0, units);
                 ledDevice.applyBackground();
             catch e
-                warning('CfPatchFlashIvCurve:LedOffFailed', ...
+                warning('CfPatchIvCurveFlash:LedOffFailed', ...
                     'Failed to turn off LED: %s', e.message);
             end
         end
@@ -477,7 +477,7 @@ classdef CfPatchFlashIvCurve < fortenbachlab.protocols.FortenbachLabProtocol
             if isempty(targetFlux) || ~isfinite(targetFlux) || targetFlux < 0, return; end
             obj.ensureCalibrationLoaded();
             if isempty(obj.ledCalibration)
-                warning('CfPatchFlashIvCurve:NoCalibration', ...
+                warning('CfPatchIvCurveFlash:NoCalibration', ...
                     'LED calibration not loaded; cannot set backgroundIntensity.');
                 return;
             end

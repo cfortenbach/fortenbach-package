@@ -20,10 +20,11 @@ classdef CfPatchIvCurve < fortenbachlab.protocols.FortenbachLabProtocol
         tailTime = 50                   % Pulse trailing duration (ms)
         firstPulseSignal = -80          % First pulse signal value (mV or pA depending on amp mode)
         incrementPerPulse = 10          % Increment value per each pulse (mV or pA depending on amp mode)
-        pulsesInFamily = uint16(11)     % Number of pulses in family
+        pulsesInFamily = uint16(15)     % Number of pulses in family (-80 to +60 mV in 10 mV steps)
         numberOfAverages = uint16(5)    % Number of families
         interpulseInterval = 0          % Duration between pulses (s)
         lightOn = false                 % Turn on continuous background light during run
+        randomizeLight = false          % Randomize light ON/OFF across epochs (matched count per voltage step)
         led                             % Output LED (used when lightOn is true)
         lightMean = 0                   % Background amplitude: LED DC voltage (V [0-10])
         ndf = 0.0                       % ND filter setting (applied to filter wheel when lightOn is true)
@@ -43,6 +44,7 @@ classdef CfPatchIvCurve < fortenbachlab.protocols.FortenbachLabProtocol
         ledType
         ndfType = symphonyui.core.PropertyType('denserealdouble', 'scalar', {0, 0.5, 1.0, 2.0, 3.0, 4.0})
         ivFigure
+        lightSequence                   % numberOfAverages x pulsesInFamily logical: light on for (repeat, pulse)
     end
 
     methods
@@ -63,7 +65,8 @@ classdef CfPatchIvCurve < fortenbachlab.protocols.FortenbachLabProtocol
 
             % Hide light-related fields when lightOn is false.
             if ~obj.lightOn && (strcmp(name, 'led') || strcmp(name, 'lightMean') ...
-                    || strcmp(name, 'ndf') || strcmp(name, 'backgroundIntensity'))
+                    || strcmp(name, 'ndf') || strcmp(name, 'backgroundIntensity') ...
+                    || strcmp(name, 'randomizeLight'))
                 d.isHidden = true;
             end
 
@@ -104,6 +107,9 @@ classdef CfPatchIvCurve < fortenbachlab.protocols.FortenbachLabProtocol
                     d.displayName = 'Background Voltage (V)';
                 case {'led', 'ndf', 'lightOn', 'backgroundIntensity'}
                     d.category = 'Light';
+                case 'randomizeLight'
+                    d.category = 'Light';
+                    d.displayName = 'Randomize Light (matched ON/OFF)';
                 case {'amp', 'amp2', 'mode', 'alternateMode'}
                     d.category = 'Amplifier';
                 case 'numberOfAverages'
@@ -131,15 +137,15 @@ classdef CfPatchIvCurve < fortenbachlab.protocols.FortenbachLabProtocol
             if numel(obj.rig.getDeviceNames('Amp')) < 2
                 obj.showFigure('symphonyui.builtin.figures.ResponseFigure', obj.rig.getDevice(obj.amp));
                 obj.showFigure('symphonyui.builtin.figures.MeanResponseFigure', obj.rig.getDevice(obj.amp), ...
-                    'groupBy', {'pulseSignal'});
+                    'groupBy', obj.meanGroupBy());
                 obj.showFigure('symphonyui.builtin.figures.ResponseStatisticsFigure', obj.rig.getDevice(obj.amp), {@mean, @var}, ...
                     'baselineRegion', [0 obj.preTime], ...
                     'measurementRegion', [obj.preTime obj.preTime+obj.stimTime]);
             else
                 obj.showFigure('fortenbachlab.figures.DualResponseFigure', obj.rig.getDevice(obj.amp), obj.rig.getDevice(obj.amp2));
                 obj.showFigure('fortenbachlab.figures.DualMeanResponseFigure', obj.rig.getDevice(obj.amp), obj.rig.getDevice(obj.amp2), ...
-                    'groupBy1', {'pulseSignal'}, ...
-                    'groupBy2', {'pulseSignal'});
+                    'groupBy1', obj.meanGroupBy(), ...
+                    'groupBy2', obj.meanGroupBy());
                 obj.showFigure('fortenbachlab.figures.DualResponseStatisticsFigure', obj.rig.getDevice(obj.amp), {@mean, @var}, obj.rig.getDevice(obj.amp2), {@mean, @var}, ...
                     'baselineRegion1', [0 obj.preTime], ...
                     'measurementRegion1', [obj.preTime obj.preTime+obj.stimTime], ...
@@ -164,8 +170,30 @@ classdef CfPatchIvCurve < fortenbachlab.protocols.FortenbachLabProtocol
             title(obj.ivFigure.userData.ax, 'IV Curve');
             hold(obj.ivFigure.userData.ax, 'on');
             grid(obj.ivFigure.userData.ax, 'on');
-            % Storage: map from pulseSignal -> array of steady-state currents.
-            obj.ivFigure.userData.ivData = containers.Map('KeyType', 'double', 'ValueType', 'any');
+            % Storage: map from pulseSignal -> array of steady-state currents,
+            % one map per light state so randomized runs give two IV curves.
+            obj.ivFigure.userData.ivData = containers.Map('KeyType', 'double', 'ValueType', 'any');       % light OFF (or all, when not randomized)
+            obj.ivFigure.userData.ivDataLight = containers.Map('KeyType', 'double', 'ValueType', 'any');  % light ON (randomized runs only)
+
+            % Build the matched, randomized light sequence.
+            obj.lightSequence = [];
+            if obj.lightOn && obj.randomizeLight
+                nAvg = double(obj.numberOfAverages);
+                nPulse = double(obj.pulsesInFamily);
+                if mod(nAvg, 2) ~= 0
+                    warning('CfPatchIvCurve:oddAverages', ...
+                        ['randomizeLight: numberOfAverages (%d) is odd, so ON/OFF counts cannot be ' ...
+                         'matched exactly; each voltage step gets %d ON and %d OFF epochs.'], ...
+                        nAvg, floor(nAvg/2), ceil(nAvg/2));
+                end
+                nOn = floor(nAvg / 2);
+                seq = false(nAvg, nPulse);
+                for p = 1:nPulse
+                    order = randperm(nAvg);
+                    seq(order(1:nOn), p) = true;   % independent shuffle per voltage step
+                end
+                obj.lightSequence = seq;
+            end
 
             % If light is enabled, set the filter wheel and turn on the LED.
             if obj.lightOn
@@ -184,8 +212,41 @@ classdef CfPatchIvCurve < fortenbachlab.protocols.FortenbachLabProtocol
                         'Failed to set filter wheel to NDF %g: %s', obj.ndf, e.message);
                 end
 
-                % Ramp up the LED background.
-                obj.setLedBackground(obj.led, obj.lightMean);
+                if obj.randomizeLight
+                    % Light is delivered per-epoch as a stimulus; keep the
+                    % LED background (inter-epoch level) at 0.
+                    obj.setLedBackground(obj.led, 0);
+                else
+                    % Ramp up the LED background.
+                    obj.setLedBackground(obj.led, obj.lightMean);
+                end
+            end
+        end
+
+        function g = meanGroupBy(obj)
+            % Group mean-response traces by light state too when randomizing.
+            if obj.lightOn && obj.randomizeLight
+                g = {'pulseSignal', 'lightOn'};
+            else
+                g = {'pulseSignal'};
+            end
+        end
+
+        function tf = epochLightOn(obj, epochNum)
+            % Light state for the given 1-based epoch index.
+            if ~obj.lightOn
+                tf = false;
+            elseif ~obj.randomizeLight || isempty(obj.lightSequence)
+                tf = true;
+            else
+                nPulse = double(obj.pulsesInFamily);
+                pulseNum = mod(epochNum - 1, nPulse) + 1;
+                rep = floor((epochNum - 1) / nPulse) + 1;
+                if rep > size(obj.lightSequence, 1)
+                    tf = false;   % beyond the planned run (should not occur)
+                else
+                    tf = obj.lightSequence(rep, pulseNum);
+                end
             end
         end
 
@@ -251,8 +312,8 @@ classdef CfPatchIvCurve < fortenbachlab.protocols.FortenbachLabProtocol
             epoch.addStimulus(obj.rig.getDevice(obj.amp), stim);
             epoch.addResponse(obj.rig.getDevice(obj.amp));
 
-            % Add continuous light stimulus if enabled.
-            if obj.lightOn
+            % Add continuous light stimulus if enabled (per-epoch when randomized).
+            if obj.epochLightOn(obj.numEpochsPrepared)
                 epoch.addStimulus(obj.rig.getDevice(obj.led), obj.createLedStimulus());
                 epoch.addParameter('lightOn', true);
                 epoch.addParameter('lightMean', obj.lightMean);
@@ -261,6 +322,7 @@ classdef CfPatchIvCurve < fortenbachlab.protocols.FortenbachLabProtocol
             else
                 epoch.addParameter('lightOn', false);
             end
+            epoch.addParameter('randomizeLight', logical(obj.lightOn && obj.randomizeLight));
 
             if numel(obj.rig.getDeviceNames('Amp')) >= 2
                 epoch.addStimulus(obj.rig.getDevice(obj.amp2), obj.createAmp2Stimulus());
@@ -345,51 +407,61 @@ classdef CfPatchIvCurve < fortenbachlab.protocols.FortenbachLabProtocol
                 ssEnd       = prePts + stimPts;
                 steadyState = mean(quantities(ssStart:ssEnd));
 
-                % Accumulate into the map (raw base-SI values).
-                ivData = figureHandler.userData.ivData;
+                % Accumulate into the map for this epoch's light state (raw base-SI values).
+                randomized = obj.lightOn && obj.randomizeLight;
+                epochLight = false;
+                if randomized && epoch.parameters.isKey('lightOn')
+                    epochLight = logical(epoch.parameters('lightOn'));
+                end
+                if epochLight
+                    ivData = figureHandler.userData.ivDataLight;
+                else
+                    ivData = figureHandler.userData.ivData;
+                end
                 if ivData.isKey(pulseSignal)
                     ivData(pulseSignal) = [ivData(pulseSignal), steadyState];
                 else
                     ivData(pulseSignal) = steadyState;
                 end
 
-                % Rebuild the IV plot.
+                % Rebuild the IV plot: one series per light state. Both
+                % series share a single display scale (pA).
                 ax = figureHandler.userData.ax;
                 cla(ax);
-                voltages = cell2mat(ivData.keys);
-                voltages = sort(voltages);
-                means = zeros(size(voltages));
-                ses   = zeros(size(voltages));
-                for i = 1:numel(voltages)
-                    vals = ivData(voltages(i));
-                    means(i) = mean(vals);
-                    if numel(vals) > 1
-                        ses(i) = std(vals) / sqrt(numel(vals));
+                currentUnits = 'pA';
+                scaleFactor = 1e12;
+                series = {figureHandler.userData.ivData, [0 0.4470 0.7410], 'Light OFF'; ...
+                          figureHandler.userData.ivDataLight, [0.8500 0.3250 0.0980], 'Light ON'};
+                if ~randomized
+                    series(2, :) = [];
+                    if obj.lightOn
+                        series{1, 3} = 'Light ON';
                     end
                 end
-
-                % Auto-scale current values for display.
-                [means, currentUnits] = obj.siAutoScale(means, 'A');
-                % Scale SEs by the same factor.
-                if ~isempty(ses) && ~isempty(means)
-                    rawPeak = max(abs(ivData(voltages(1))));
-                    for vi = 2:numel(voltages)
-                        rawPeak = max(rawPeak, max(abs(ivData(voltages(vi)))));
+                for si = 1:size(series, 1)
+                    m = series{si, 1};
+                    if m.Count == 0, continue; end
+                    voltages = sort(cell2mat(m.keys));
+                    means = zeros(size(voltages));
+                    ses   = zeros(size(voltages));
+                    for i = 1:numel(voltages)
+                        vals = m(voltages(i));
+                        means(i) = mean(vals);
+                        if numel(vals) > 1
+                            ses(i) = std(vals) / sqrt(numel(vals));
+                        end
                     end
-                    if rawPeak > 0 && abs(means(1)) > 0
-                        scaleFactor = means(1) / (mean(ivData(voltages(1))));
-                    else
-                        scaleFactor = 1;
-                    end
-                    ses = ses * scaleFactor;
+                    errorbar(ax, voltages, means * scaleFactor, ses * scaleFactor, 'o-', ...
+                        'Color', series{si, 2}, ...
+                        'MarkerFaceColor', series{si, 2}, ...
+                        'MarkerSize', 6, ...
+                        'LineWidth', 1.5, ...
+                        'CapSize', 8, ...
+                        'DisplayName', series{si, 3});
                 end
-
-                errorbar(ax, voltages, means, ses, 'o-', ...
-                    'Color', [0 0.4470 0.7410], ...
-                    'MarkerFaceColor', [0 0.4470 0.7410], ...
-                    'MarkerSize', 6, ...
-                    'LineWidth', 1.5, ...
-                    'CapSize', 8);
+                if randomized
+                    legend(ax, 'show', 'Location', 'northwest');
+                end
                 xlabel(ax, 'Membrane Potential (mV)');
                 ylabel(ax, ['Current (' currentUnits ')']);
                 title(ax, 'IV Curve');
